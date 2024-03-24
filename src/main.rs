@@ -28,7 +28,7 @@ enum Commands {
 /// Arguments used for the `rec` command
 #[derive(Args, Debug)]
 struct RecArgs {
-    /// Path for the output audio file; must be wav format for now, e.g. `output.wav`
+    /// Path for the output audio file, e.g. `output`
     #[arg(required = false)]
     output: Option<String>,
 }
