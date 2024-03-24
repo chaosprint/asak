@@ -23,7 +23,7 @@ asak --help
 ### record
 
 ```sh
-asak rec 1.wav
+asak rec hello
 ```
 
 If no output name is provided, it will default to `YYMMDD-HHMMSS.wav`.
