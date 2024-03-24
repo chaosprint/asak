@@ -31,7 +31,7 @@ If no output name is provided, it will default to `YYMMDD-HHMMSS.wav`.
 ### playback
 
 ```sh
-asak play 1.wav
+asak play hello.wav
 ```
 
 ## temp roadmap
