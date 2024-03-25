@@ -12,6 +12,24 @@ use playback::play_audio;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    /// The audio device to use
+    #[arg(short, long, default_value_t = String::from("default"))]
+    device: String,
+
+    /// Use the JACK host
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
+        feature = "jack"
+    ))]
+    #[arg(short, long)]
+    #[allow(dead_code)]
+    jack: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -21,9 +39,6 @@ enum Commands {
     /// Play an audio file
     Play(PlayArgs),
 }
-
-// / Process an audio file with effects
-// Proc(ProcArgs),
 
 /// Arguments used for the `rec` command
 #[derive(Args, Debug)]
@@ -41,49 +56,67 @@ struct PlayArgs {
     input: String,
 }
 
-/// Arguments used for the `proc` command
-#[derive(Args, Debug)]
-struct ProcArgs {
-    /// Input audio file path
-    #[arg(required = true)]
-    input: String,
-
-    /// Output audio file path
-    #[arg(required = true)]
-    output: String,
-
-    /// Apply a resonant low-pass filter with specified cutoff frequency and resonance (Q)
-    #[arg(long, num_args = 2)]
-    rlpf: Option<Vec<f32>>, // No longer optional
-
-    /// Apply a resonant high-pass filter with specified cutoff frequency and resonance (Q)
-    #[arg(long)]
-    rhpf: Option<Vec<f32>>,
-}
-
 fn main() {
     let cli = Cli::parse();
 
     match &cli.command {
         Commands::Rec(args) => {
-            // Recording logic with args.output
-            // println!("Recording to {}", args.output);
-            record_audio(&args.output).unwrap();
+            // Pass the respective JACK usage flag to play_audio based on compile-time detection
+            #[cfg(all(
+                any(
+                    target_os = "linux",
+                    target_os = "dragonfly",
+                    target_os = "freebsd",
+                    target_os = "netbsd"
+                ),
+                feature = "jack"
+            ))]
+            {
+                // If we're on the right platform and JACK is enabled, pass true to use JACK for playback
+                record_audio(&args.input, &cli.device, &cli.jack).unwrap();
+            }
+            #[cfg(not(all(
+                any(
+                    target_os = "linux",
+                    target_os = "dragonfly",
+                    target_os = "freebsd",
+                    target_os = "netbsd"
+                ),
+                feature = "jack"
+            )))]
+            {
+                // If JACK is not available or the platform is unsupported, pass false to not use JACK
+                record_audio(&args.output, &cli.device, false).unwrap();
+            }
         }
         Commands::Play(args) => {
-            // Playback logic with args.input
-            // println!("Playing {}", args.input);
-            play_audio(&args.input).unwrap();
-        } // Commands::Proc(args) => {
-          //     // Audio processing logic with args.input, args.output
-          //     println!("Processing {} to {}", args.input, args.output);
-          //     if let Some(rlpf) = &args.rlpf {
-          //         println!(
-          //             "Applying resonant low-pass filter with
-          //             cutoff frequency: {} and resonance: {}",
-          //             rlpf[0], rlpf[1]
-          //         );
-          //     }
-          // }
+            // Pass the respective JACK usage flag to play_audio based on compile-time detection
+            #[cfg(all(
+                any(
+                    target_os = "linux",
+                    target_os = "dragonfly",
+                    target_os = "freebsd",
+                    target_os = "netbsd"
+                ),
+                feature = "jack"
+            ))]
+            {
+                // If we're on the right platform and JACK is enabled, pass true to use JACK for playback
+                play_audio(&args.input, &cli.device, &cli.jack).unwrap();
+            }
+            #[cfg(not(all(
+                any(
+                    target_os = "linux",
+                    target_os = "dragonfly",
+                    target_os = "freebsd",
+                    target_os = "netbsd"
+                ),
+                feature = "jack"
+            )))]
+            {
+                // If JACK is not available or the platform is unsupported, pass false to not use JACK
+                play_audio(&args.input, &cli.device, false).unwrap();
+            }
+        }
     }
 }

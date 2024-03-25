@@ -155,7 +155,8 @@ where
     }
 }
 
-pub fn record_audio(output: &Option<String>) -> Result<()> {
+#[allow(unused_variables)]
+pub fn record_audio(output: &Option<String>, device: &str, jack: bool) -> Result<()> {
     let output = match output {
         Some(o) => o.clone(),
         None => {
@@ -185,13 +186,47 @@ pub fn record_audio(output: &Option<String>) -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
     terminal.hide_cursor()?;
 
+    // Conditionally compile with jack if the feature is specified.
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
+        feature = "jack"
+    ))]
+    let host = if jack {
+        cpal::host_from_id(cpal::available_hosts()
+            .into_iter()
+            .find(|id| *id == cpal::HostId::Jack)
+            .expect(
+                "make sure --features jack is specified. only works on OSes where jack is available",
+            )).expect("jack host unavailable")
+    } else {
+        cpal::default_host()
+    };
+
+    #[cfg(any(
+        not(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        )),
+        not(feature = "jack")
+    ))]
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| anyhow::Error::msg("Failed to get default input device"))?;
-    let config = device
-        .default_input_config()
-        .expect("Failed to get default input config");
+
+    let device = if device == "default" {
+        host.default_input_device()
+    } else {
+        host.input_devices()?
+            .find(|x| x.name().map(|y| y == device).unwrap_or(false))
+    }
+    .expect("failed to find output device");
+
+    let config = device.default_input_config().unwrap();
 
     let o = output.to_owned();
     let recording_thread = std::thread::spawn(move || {

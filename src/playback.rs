@@ -21,37 +21,126 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-pub fn play_audio(file_path: &str) -> Result<()> {
+#[allow(unused_variables)]
+pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
+    // Conditionally compile with jack if the feature is specified.
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        ),
+        feature = "jack"
+    ))]
+    let host = if jack {
+        cpal::host_from_id(cpal::available_hosts()
+            .into_iter()
+            .find(|id| *id == cpal::HostId::Jack)
+            .expect(
+                "make sure --features jack is specified. only works on OSes where jack is available",
+            )).expect("jack host unavailable")
+    } else {
+        cpal::default_host()
+    };
+
+    #[cfg(any(
+        not(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd"
+        )),
+        not(feature = "jack")
+    ))]
     let host = cpal::default_host();
-    let output_device = host
-        .default_output_device()
-        .expect("No output device available");
-    let config = output_device
-        .default_output_config()
-        .expect("Failed to get default output config");
+
+    let device = if device == "default" {
+        host.default_output_device()
+    } else {
+        host.output_devices()?
+            .find(|x| x.name().map(|y| y == device).unwrap_or(false))
+    }
+    .expect("failed to find output device");
+
+    let config = device.default_output_config().unwrap();
 
     let sys_chan = config.channels() as usize;
 
     let mut reader = WavReader::open(file_path)?;
     let spec = reader.spec();
     let num_channels = spec.channels as usize;
+    let bit = spec.bits_per_sample as usize;
     let mut file_data: Vec<Vec<f32>> = vec![];
 
     for _ in 0..num_channels {
         file_data.push(Vec::new());
     }
 
+    // match spec.sample_format {
+    //     hound::SampleFormat::Float => {
+    //         let mut channel_index = 0;
+    //         for result in reader.samples::<f32>() {
+    //             let sample = result?;
+    //             file_data[channel_index].push(sample);
+    //             channel_index = (channel_index + 1) % num_channels;
+    //         }
+    //     }
+    //     hound::SampleFormat::Int => {
+    //         let mut channel_index = 0;
+    //         for result in reader.samples::<i32>() {
+    //             let sample = result? as f32 / i32::MAX as f32;
+    //             file_data[channel_index].push(sample);
+    //             channel_index = (channel_index + 1) % num_channels;
+    //         }
+    //     }
+    // }
+    let mut sample_count = 0;
+
     match spec.sample_format {
+        hound::SampleFormat::Int => match spec.bits_per_sample {
+            16 => {
+                for result in reader.samples::<i16>() {
+                    let sample = result? as f32 / i16::MAX as f32;
+                    let channel = sample_count % num_channels;
+                    file_data[channel].push(sample);
+                    sample_count += 1;
+                }
+            }
+
+            24 => {
+                for result in reader.samples::<i32>() {
+                    let sample = result?;
+                    let sample = if sample & (1 << 23) != 0 {
+                        (sample | !0xff_ffff) as f32
+                    } else {
+                        sample as f32
+                    };
+                    let sample = sample / (1 << 23) as f32;
+                    let channel = sample_count % num_channels;
+                    file_data[channel].push(sample as f32);
+                    sample_count += 1;
+                }
+            }
+
+            32 => {
+                for result in reader.samples::<i32>() {
+                    let sample = result? as f32 / i32::MAX as f32;
+                    let channel = sample_count % num_channels;
+                    file_data[channel].push(sample);
+                    sample_count += 1;
+                }
+            }
+            _ => panic!("unsupported bit depth"),
+        },
         hound::SampleFormat::Float => {
-            let mut channel_index = 0;
             for result in reader.samples::<f32>() {
                 let sample = result?;
-                file_data[channel_index].push(sample);
-                channel_index = (channel_index + 1) % num_channels;
+                let channel = sample_count % num_channels;
+                file_data[channel].push(sample);
+                sample_count += 1;
             }
         }
-        // Add other sample formats as necessary
-        _ => unimplemented!(),
     }
 
     if sys_chan == 2 && num_channels == 1 {
@@ -62,20 +151,12 @@ pub fn play_audio(file_path: &str) -> Result<()> {
     let length = file_data[0].len();
 
     let sample_format = config.sample_format();
-    // let sample_rate = cpal::SampleRate(spec.sample_rate);
-    // let channels = spec.channels as u16;
-
     let pointer = Arc::new(AtomicUsize::new(0));
-
-    // let data_arc = Arc::new(Mutex::new(data));
-
-    // let file_clone = data_arc.clone();
-    // let mut data_iter = data_arc.lock().unwrap().iter_mut();
 
     let err_fn = |err| eprintln!("an error occurred on the output stream: {}", err);
 
     let stream = match sample_format {
-        cpal::SampleFormat::F32 => output_device.build_output_stream(
+        cpal::SampleFormat::F32 => device.build_output_stream(
             &config.into(),
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 let channels = sys_chan as usize;
@@ -95,8 +176,90 @@ pub fn play_audio(file_path: &str) -> Result<()> {
             err_fn,
             None,
         )?,
-        // Handle other sample formats as needed
-        _ => unimplemented!("This sample format is not yet implemented."),
+        cpal::SampleFormat::I16 => device.build_output_stream(
+            &config.into(),
+            move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
+                let channels = sys_chan as usize;
+                for i in (0..data.len()).step_by(2) {
+                    let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
+
+                    for j in 0..channels {
+                        if i + j < data.len() && j < file_data.len() {
+                            data[i + j] = (file_data[j][p] * i16::MAX as f32) as i16;
+                        }
+                    }
+
+                    let next = if p + 1 < length { p + 1 } else { 0 };
+                    pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                }
+            },
+            err_fn,
+            None,
+        )?,
+        cpal::SampleFormat::U16 => device.build_output_stream(
+            &config.into(),
+            move |data: &mut [u16], _: &cpal::OutputCallbackInfo| {
+                let channels = sys_chan as usize;
+                for i in (0..data.len()).step_by(2) {
+                    let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
+
+                    for j in 0..channels {
+                        if i + j < data.len() && j < file_data.len() {
+                            data[i + j] =
+                                ((file_data[j][p] * u16::MAX as f32) + u16::MAX as f32) as u16;
+                        }
+                    }
+
+                    let next = if p + 1 < length { p + 1 } else { 0 };
+                    pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                }
+            },
+            err_fn,
+            None,
+        )?,
+
+        cpal::SampleFormat::I32 => device.build_output_stream(
+            &config.into(),
+            move |data: &mut [i32], _: &cpal::OutputCallbackInfo| {
+                let channels = sys_chan as usize;
+                for i in (0..data.len()).step_by(2) {
+                    let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
+
+                    for j in 0..channels {
+                        if i + j < data.len() && j < file_data.len() {
+                            data[i + j] = (file_data[j][p] * i32::MAX as f32) as i32;
+                        }
+                    }
+
+                    let next = if p + 1 < length { p + 1 } else { 0 };
+                    pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                }
+            },
+            err_fn,
+            None,
+        )?,
+        cpal::SampleFormat::U32 => device.build_output_stream(
+            &config.into(),
+            move |data: &mut [u32], _: &cpal::OutputCallbackInfo| {
+                let channels = sys_chan as usize;
+                for i in (0..data.len()).step_by(2) {
+                    let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
+
+                    for j in 0..channels {
+                        if i + j < data.len() && j < file_data.len() {
+                            data[i + j] =
+                                ((file_data[j][p] * u32::MAX as f32) + u32::MAX as f32) as u32;
+                        }
+                    }
+
+                    let next = if p + 1 < length { p + 1 } else { 0 };
+                    pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                }
+            },
+            err_fn,
+            None,
+        )?,
+        _ => panic!("unsupported sample format"),
     };
     stream.play()?;
 
@@ -136,15 +299,6 @@ pub fn play_audio(file_path: &str) -> Result<()> {
                 let rms = file_data_clone[0][index];
                 data_vec.push((i as f64, rms as f64));
             }
-            //     .enumerate()
-            //     .filter_map(|(i, &x)| {
-            //         if i % (length / width) == 0 {
-            //             Some((i as f64, x as f64))
-            //         } else {
-            //             None
-            //         }
-            //     })
-            //     .collect();
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -203,5 +357,3 @@ pub fn play_audio(file_path: &str) -> Result<()> {
     execute!(stdout(), LeaveAlternateScreen)?;
     Ok(())
 }
-
-// fn playback_tui() {}
