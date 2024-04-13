@@ -165,12 +165,12 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
                     for j in 0..channels {
-                        if i + j < data.len() && j < resampled_data.len() {
+                        if i + j < data.len() && j < resampled_data.len() && p < length {
                             data[i + j] = resampled_data[j][p];
                         }
                     }
 
-                    let next = if p + 1 < length { p + 1 } else { 0 };
+                    let next = if p + 1 < length - 1 { p + 1 } else { 0 };
                     pointer.store(next, std::sync::atomic::Ordering::Relaxed);
                 }
             },
@@ -185,12 +185,12 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
                     for j in 0..channels {
-                        if i + j < data.len() && j < resampled_data.len() {
+                        if i + j < data.len() && j < resampled_data.len() && p < length {
                             data[i + j] = (resampled_data[j][p] * i16::MAX as f32) as i16;
                         }
                     }
 
-                    let next = if p + 1 < length { p + 1 } else { 0 };
+                    let next = if p + 1 < length - 1 { p + 1 } else { 0 };
                     pointer.store(next, std::sync::atomic::Ordering::Relaxed);
                 }
             },
@@ -205,13 +205,13 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
                     for j in 0..channels {
-                        if i + j < data.len() && j < resampled_data.len() {
+                        if i + j < data.len() && j < resampled_data.len() && p < length {
                             data[i + j] =
                                 ((resampled_data[j][p] * u16::MAX as f32) + u16::MAX as f32) as u16;
                         }
                     }
 
-                    let next = if p + 1 < length { p + 1 } else { 0 };
+                    let next = if p + 1 < length - 1 { p + 1 } else { 0 };
                     pointer.store(next, std::sync::atomic::Ordering::Relaxed);
                 }
             },
@@ -227,12 +227,12 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
                     for j in 0..channels {
-                        if i + j < data.len() && j < resampled_data.len() {
+                        if i + j < data.len() && j < resampled_data.len() && p < length {
                             data[i + j] = (resampled_data[j][p] * i32::MAX as f32) as i32;
                         }
                     }
 
-                    let next = if p + 1 < length { p + 1 } else { 0 };
+                    let next = if p + 1 < length - 1 { p + 1 } else { 0 };
                     pointer.store(next, std::sync::atomic::Ordering::Relaxed);
                 }
             },
@@ -247,13 +247,13 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
                     for j in 0..channels {
-                        if i + j < data.len() && j < resampled_data.len() {
+                        if i + j < data.len() && j < resampled_data.len() && p < length {
                             data[i + j] =
                                 ((resampled_data[j][p] * u32::MAX as f32) + u32::MAX as f32) as u32;
                         }
                     }
 
-                    let next = if p + 1 < length { p + 1 } else { 0 };
+                    let next = if p + 1 < length - 1 { p + 1 } else { 0 };
                     pointer.store(next, std::sync::atomic::Ordering::Relaxed);
                 }
             },
