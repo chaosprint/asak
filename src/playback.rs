@@ -16,6 +16,8 @@ use ratatui::{
     style::{Color, Style},
 };
 
+use dasp_interpolate::linear::Linear;
+use dasp_signal::Signal;
 use std::io::stdout;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
@@ -66,9 +68,11 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
     let config = device.default_output_config().unwrap();
 
     let sys_chan = config.channels() as usize;
-
+    let sys_sr = config.sample_rate().0 as f64;
     let mut reader = WavReader::open(file_path)?;
     let spec = reader.spec();
+    let source_sr = spec.sample_rate as f64;
+
     let num_channels = spec.channels as usize;
     let bit = spec.bits_per_sample as usize;
     let mut file_data: Vec<Vec<f32>> = vec![];
@@ -77,24 +81,6 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
         file_data.push(Vec::new());
     }
 
-    // match spec.sample_format {
-    //     hound::SampleFormat::Float => {
-    //         let mut channel_index = 0;
-    //         for result in reader.samples::<f32>() {
-    //             let sample = result?;
-    //             file_data[channel_index].push(sample);
-    //             channel_index = (channel_index + 1) % num_channels;
-    //         }
-    //     }
-    //     hound::SampleFormat::Int => {
-    //         let mut channel_index = 0;
-    //         for result in reader.samples::<i32>() {
-    //             let sample = result? as f32 / i32::MAX as f32;
-    //             file_data[channel_index].push(sample);
-    //             channel_index = (channel_index + 1) % num_channels;
-    //         }
-    //     }
-    // }
     let mut sample_count = 0;
 
     match spec.sample_format {
@@ -143,12 +129,27 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
         }
     }
 
+    // TODO: should be able to play any chan file in any chan system
     if sys_chan == 2 && num_channels == 1 {
         file_data.push(file_data[0].clone());
     }
 
     let file_data_clone = file_data.clone();
     let length = file_data[0].len();
+
+    let mut resampled_data: Vec<Vec<f32>> = vec![vec![]; sys_chan];
+
+    for i in 0..sys_chan {
+        let mut source = dasp_signal::from_iter(file_data[i].iter().cloned());
+        let a = source.next();
+        let b = source.next();
+        let interp = Linear::new(a, b);
+        let resampled_sig = source
+            .from_hz_to_hz(interp, source_sr, sys_sr)
+            .until_exhausted();
+
+        resampled_data[i] = resampled_sig.collect();
+    }
 
     let sample_format = config.sample_format();
     let pointer = Arc::new(AtomicUsize::new(0));
@@ -160,12 +161,12 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
             &config.into(),
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 let channels = sys_chan as usize;
-                for i in (0..data.len()).step_by(2) {
+                for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
                     for j in 0..channels {
-                        if i + j < data.len() && j < file_data.len() {
-                            data[i + j] = file_data[j][p];
+                        if i + j < data.len() && j < resampled_data.len() {
+                            data[i + j] = resampled_data[j][p];
                         }
                     }
 
@@ -180,12 +181,12 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
             &config.into(),
             move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
                 let channels = sys_chan as usize;
-                for i in (0..data.len()).step_by(2) {
+                for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
                     for j in 0..channels {
-                        if i + j < data.len() && j < file_data.len() {
-                            data[i + j] = (file_data[j][p] * i16::MAX as f32) as i16;
+                        if i + j < data.len() && j < resampled_data.len() {
+                            data[i + j] = (resampled_data[j][p] * i16::MAX as f32) as i16;
                         }
                     }
 
@@ -200,13 +201,13 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
             &config.into(),
             move |data: &mut [u16], _: &cpal::OutputCallbackInfo| {
                 let channels = sys_chan as usize;
-                for i in (0..data.len()).step_by(2) {
+                for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
                     for j in 0..channels {
-                        if i + j < data.len() && j < file_data.len() {
+                        if i + j < data.len() && j < resampled_data.len() {
                             data[i + j] =
-                                ((file_data[j][p] * u16::MAX as f32) + u16::MAX as f32) as u16;
+                                ((resampled_data[j][p] * u16::MAX as f32) + u16::MAX as f32) as u16;
                         }
                     }
 
@@ -222,12 +223,12 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
             &config.into(),
             move |data: &mut [i32], _: &cpal::OutputCallbackInfo| {
                 let channels = sys_chan as usize;
-                for i in (0..data.len()).step_by(2) {
+                for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
                     for j in 0..channels {
-                        if i + j < data.len() && j < file_data.len() {
-                            data[i + j] = (file_data[j][p] * i32::MAX as f32) as i32;
+                        if i + j < data.len() && j < resampled_data.len() {
+                            data[i + j] = (resampled_data[j][p] * i32::MAX as f32) as i32;
                         }
                     }
 
@@ -242,13 +243,13 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
             &config.into(),
             move |data: &mut [u32], _: &cpal::OutputCallbackInfo| {
                 let channels = sys_chan as usize;
-                for i in (0..data.len()).step_by(2) {
+                for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
                     for j in 0..channels {
-                        if i + j < data.len() && j < file_data.len() {
+                        if i + j < data.len() && j < resampled_data.len() {
                             data[i + j] =
-                                ((file_data[j][p] * u32::MAX as f32) + u32::MAX as f32) as u32;
+                                ((resampled_data[j][p] * u32::MAX as f32) + u32::MAX as f32) as u32;
                         }
                     }
 
