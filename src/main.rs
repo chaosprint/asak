@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 
 mod record;
-use inquire::{InquireError, Select};
+use inquire::{InquireError, Select, Text};
 use record::record_audio;
 
 mod playback;
@@ -87,7 +87,29 @@ fn main() {
             )))]
             {
                 // If JACK is not available or the platform is unsupported, pass false to not use JACK
-                record_audio(&args.output, &cli.device, false).unwrap();
+                match &args.output {
+                    Some(output) => {
+                        // let output = o;
+                        record_audio(output.clone(), &cli.device, false).unwrap();
+                    }
+                    None => {
+                        let now = chrono::Utc::now();
+                        let name = format!(
+                            "{}.wav",
+                            now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+                        );
+                        // let output = Text::new("What is your name?").placeholder(name).prompt();
+                        let output = Text {
+                            initial_value: Some(&name),
+                            ..Text::new("Please enter the output wav file name:")
+                        }
+                        .prompt();
+                        match output {
+                            Ok(output) => record_audio(output, &cli.device, false).unwrap(),
+                            Err(_) => println!("Recording cancelled."),
+                        }
+                    }
+                };
             }
         }
         Commands::Play(args) => {
@@ -137,7 +159,7 @@ fn main() {
                                 Select::new("Select a wav file to play", options).prompt();
                             match ans {
                                 Ok(input) => play_audio(&input, &cli.device, false).unwrap(),
-                                Err(_) => println!("Error selecting file"),
+                                Err(_) => println!("Playback cancelled."),
                             }
                         }
                     }

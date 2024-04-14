@@ -188,15 +188,8 @@ where
 }
 
 #[allow(unused_variables)]
-pub fn record_audio(output: &Option<String>, device: &str, jack: bool) -> anyhow::Result<()> {
-    let output = match output {
-        Some(o) => o.replace(".wav", ""),
-        None => {
-            let now = chrono::Utc::now();
-            format!("{}", now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
-        }
-    };
-    let output = format!("{}.wav", output);
+pub fn record_audio(output: String, device: &str, jack: bool) -> anyhow::Result<()> {
+    let output = format!("{}.wav", output.replace(".wav", ""));
     let shared_waveform_data: Arc<RwLock<Vec<f32>>> = Arc::new(RwLock::new(Vec::new()));
     let shared_waveform_data_for_audio_thread = shared_waveform_data.clone();
 
