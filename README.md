@@ -2,12 +2,7 @@
 
 A cross-platform audio recording/playback CLI tool with TUI, written in Rust. The goal is to be an audio Swiss Army Knife (asak), like SoX but more interative and fun.
 
-
-
 https://github.com/chaosprint/asak/assets/35621141/51f5307a-db55-4998-9dac-065e2ea8da4c
-
-
-
 
 ## install
 
@@ -33,7 +28,7 @@ asak --help
 asak rec hello
 ```
 
-If no output name is provided, it will default to UTC format such as `2024-04-14T09:17:40Z.wav`.
+> If no output name is provided, a prompt will come for you to input output file name. UTC format such as `2024-04-14T09:17:40Z.wav` will be provided as initial file name.
 
 ### playback
 

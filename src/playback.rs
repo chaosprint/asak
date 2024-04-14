@@ -276,7 +276,7 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
     loop {
         if event::poll(Duration::from_millis(100))? {
             if let event::Event::Key(event) = event::read()? {
-                if event.code == KeyCode::Esc {
+                if event.code == KeyCode::Enter {
                     break;
                 }
             }
@@ -344,7 +344,7 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
                 );
             f.render_widget(chart, chunks[1]);
             let label = Span::styled(
-                format!("press esc to exit tui and stop playback."),
+                format!("press ENTER to exit tui and stop playback."),
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::ITALIC | Modifier::BOLD),

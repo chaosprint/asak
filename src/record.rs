@@ -70,12 +70,12 @@ fn record_tui(
 
         if event::poll(refresh_interval)? {
             if let event::Event::Key(event) = event::read()? {
-                if event.code == KeyCode::Esc {
+                if event.code == KeyCode::Enter {
                     is_recording.store(false, Ordering::SeqCst);
                     break;
                 } else if event.code == KeyCode::Backspace {
                     // TODO: add pause functionality
-                } else if event.code == KeyCode::Enter {
+                    // } else if event.code == KeyCode::Enter {
                     // start_time = Instant::now();
                     // if let Ok(mut rstate) = recording_state.lock() {
                     //     *rstate = RecordingState::Recording;
@@ -135,7 +135,7 @@ fn draw_rec_waveform(
         f.render_widget(time_paragraph, chunks[0]);
 
         let label = Span::styled(
-            format!("press esc to exit tui and finish recording..."),
+            format!("press ENTER to exit tui and finish recording..."),
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::ITALIC | Modifier::BOLD),
