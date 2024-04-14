@@ -6,13 +6,14 @@ use crossterm::terminal::{
 };
 use hound::{WavSpec, WavWriter};
 
+use parking_lot::Mutex;
 use ratatui::style::Modifier;
 use ratatui::symbols;
 use ratatui::widgets::{Axis, Chart, Dataset, GraphType};
 use std::fs::File;
 use std::io::{stdout, BufWriter, Stdout};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 use std::time::Duration;
 
@@ -60,13 +61,11 @@ fn record_tui(
         let duration = now.duration_since(start_time);
         let recording_time = format!("Recording Time: {:.2}s", duration.as_secs_f32());
 
-        if let Ok(rstate) = recording_state.lock() {
-            match *rstate {
-                RecordingState::Recording => {
-                    draw_rec_waveform(&mut terminal, shared_waveform_data.clone(), recording_time)?;
-                }
-                _ => {}
+        match *recording_state.lock() {
+            RecordingState::Recording => {
+                draw_rec_waveform(&mut terminal, shared_waveform_data.clone(), recording_time)?;
             }
+            _ => {}
         }
 
         if event::poll(refresh_interval)? {
@@ -176,13 +175,10 @@ where
     T: Sample,
     U: Sample + hound::Sample + FromSample<T>,
 {
-    if let Ok(mut guard) = writer.try_lock() {
-        if let Some(writer) = guard.as_mut() {
-            for &sample in input.iter() {
-                // waveform_data.push(sample.to_sample());
-                let sample: U = U::from_sample(sample);
-                writer.write_sample(sample).ok();
-            }
+    if let Some(writer) = writer.lock().as_mut() {
+        for &sample in input.iter() {
+            let sample: U = U::from_sample(sample);
+            writer.write_sample(sample).ok();
         }
     }
 }
@@ -315,11 +311,10 @@ pub fn record_audio(output: String, device: &str, jack: bool) -> anyhow::Result<
 
         stream.pause().unwrap();
 
-        if let Ok(mut writer_guard) = writer.lock() {
-            if let Some(writer) = writer_guard.take() {
-                writer.finalize().unwrap();
-            }
+        if let Some(writer) = writer.lock().take() {
+            writer.finalize().unwrap();
         }
+
         Ok(())
     });
 
