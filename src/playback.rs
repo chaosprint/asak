@@ -69,7 +69,7 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
 
     let sys_chan = config.channels() as usize;
     let sys_sr = config.sample_rate().0 as f64;
-    let mut reader = WavReader::open(file_path)?;
+    let mut reader = WavReader::open(file_path).expect("failed to open wav file");
     let spec = reader.spec();
     let source_sr = spec.sample_rate as f64;
 
@@ -135,7 +135,6 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
     }
 
     let file_data_clone = file_data.clone();
-    let length = file_data[0].len();
 
     let mut resampled_data: Vec<Vec<f32>> = vec![vec![]; sys_chan];
 
@@ -150,6 +149,7 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
 
         resampled_data[i] = resampled_sig.collect();
     }
+    let length = resampled_data[0].len();
 
     let sample_format = config.sample_format();
     let pointer = Arc::new(AtomicUsize::new(0));

@@ -1,6 +1,6 @@
 [package]
 name = "asak"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 keywords = ["audio", "music", "DSP", "synth", "synthesizer"]
 readme = "README.md"
@@ -15,7 +15,7 @@ chrono = "0.4.35"
 clap = { version = "4.5.1", features = ["derive"] }
 cpal = { version = "0.15.2", features = ["jack"], optional = true }
 crossterm = "0.27.0"
-dasp_interpolate = {version = "0.11.0", features = ["linear"]}
+dasp_interpolate = { version = "0.11.0", features = ["linear"] }
 dasp_signal = "0.11.0"
 hound = "3.5.1"
 rand = "0.8.5"
