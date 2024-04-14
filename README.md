@@ -28,7 +28,7 @@ asak --help
 asak rec hello
 ```
 
-If no output name is provided, it will default to ISO 8601 format such as `2024-04-14T09:17:40Z.wav`.
+If no output name is provided, it will default to UTC format such as `2024-04-14T09:17:40Z.wav`.
 
 ### playback
 
@@ -36,7 +36,9 @@ If no output name is provided, it will default to ISO 8601 format such as `2024-
 asak play hello.wav
 ```
 
-## temp roadmap
+> If no input name is provided, it will search current directory for `.wav` files and open an interactive menu.
+
+## roadmap?
 
 - [x] record audio
 - [x] basic audio playback

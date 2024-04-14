@@ -1,6 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 
 mod record;
+use inquire::{InquireError, Select};
 use record::record_audio;
 
 mod playback;
@@ -52,8 +53,8 @@ struct RecArgs {
 #[derive(Args, Debug)]
 struct PlayArgs {
     /// Path to the audio file to play; must be wav format for now, e.g. `input.wav`
-    #[arg(required = true)]
-    input: String,
+    #[arg(required = false)]
+    input: Option<String>,
 }
 
 fn main() {
@@ -115,7 +116,32 @@ fn main() {
             )))]
             {
                 // If JACK is not available or the platform is unsupported, pass false to not use JACK
-                play_audio(&args.input, &cli.device, false).unwrap();
+                match &args.input {
+                    Some(input) => play_audio(input, &cli.device, false).unwrap(),
+                    None => {
+                        let mut options: Vec<String> = vec![];
+                        // check current directory for wav files
+                        let files = std::fs::read_dir(".").unwrap();
+                        for file in files {
+                            let file = file.unwrap();
+                            let path = file.path().clone();
+                            let path = path.to_str().unwrap();
+                            if path.ends_with(".wav") {
+                                options.push(format!("{}", path));
+                            }
+                        }
+                        if options.len() == 0 {
+                            println!("No wav files found in current directory");
+                        } else {
+                            let ans: Result<String, InquireError> =
+                                Select::new("Select a wav file to play", options).prompt();
+                            match ans {
+                                Ok(input) => play_audio(&input, &cli.device, false).unwrap(),
+                                Err(_) => println!("Error selecting file"),
+                            }
+                        }
+                    }
+                }
             }
         }
     }
