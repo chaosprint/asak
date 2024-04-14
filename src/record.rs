@@ -47,8 +47,7 @@ fn record_tui(
     is_recording: Arc<AtomicBool>,
     recording_state: Arc<Mutex<RecordingState>>,
 ) -> anyhow::Result<()> {
-    // let mut waveform_data = Vec::new();
-    let mut start_time = Instant::now();
+    let start_time = Instant::now();
     let refresh_interval = Duration::from_millis(100);
 
     enable_raw_mode()?;
@@ -78,10 +77,10 @@ fn record_tui(
                 } else if event.code == KeyCode::Backspace {
                     // TODO: add pause functionality
                 } else if event.code == KeyCode::Enter {
-                    start_time = Instant::now();
-                    if let Ok(mut rstate) = recording_state.lock() {
-                        *rstate = RecordingState::Recording;
-                    }
+                    // start_time = Instant::now();
+                    // if let Ok(mut rstate) = recording_state.lock() {
+                    //     *rstate = RecordingState::Recording;
+                    // }
                 }
             }
         }
@@ -194,7 +193,7 @@ pub fn record_audio(output: &Option<String>, device: &str, jack: bool) -> anyhow
         Some(o) => o.replace(".wav", ""),
         None => {
             let now = chrono::Utc::now();
-            format!("{}", now.to_rfc3339())
+            format!("{}", now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
         }
     };
     let output = format!("{}.wav", output);

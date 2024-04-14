@@ -4,7 +4,6 @@ A cross-platform audio recording/playback CLI tool with TUI, written in Rust. Th
 
 ![asak](https://github.com/chaosprint/asak/assets/35621141/06ca6aed-939d-4bcb-b602-0d54b92626c3)
 
-
 ## install
 
 > You need to have `cargo` installed, see [here](https://doc.rust-lang.org/cargo/getting-started/installation.html).
@@ -29,7 +28,7 @@ asak --help
 asak rec hello
 ```
 
-If no output name is provided, it will default to `YYMMDD-HHMMSS.wav`.
+If no output name is provided, it will default to ISO 8601 format such as `2024-04-14T09:17:40Z.wav`.
 
 ### playback
 
