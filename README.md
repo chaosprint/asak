@@ -2,7 +2,10 @@
 
 A cross-platform audio recording/playback CLI tool with TUI, written in Rust. The goal is to be an audio Swiss Army Knife (asak), like SoX but more interative and fun.
 
-![asak](https://github.com/chaosprint/asak/assets/35621141/06ca6aed-939d-4bcb-b602-0d54b92626c3)
+
+
+https://github.com/chaosprint/asak/assets/35621141/206b2660-2e43-437f-8182-a88ac934f449
+
 
 ## install
 
