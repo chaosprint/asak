@@ -4,7 +4,9 @@ A cross-platform audio recording/playback CLI tool with TUI, written in Rust. Th
 
 
 
-https://github.com/chaosprint/asak/assets/35621141/206b2660-2e43-437f-8182-a88ac934f449
+https://github.com/chaosprint/asak/assets/35621141/51f5307a-db55-4998-9dac-065e2ea8da4c
+
+
 
 
 ## install
