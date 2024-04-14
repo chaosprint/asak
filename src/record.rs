@@ -1,4 +1,3 @@
-use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, SupportedStreamConfig};
 use crossterm::execute;
@@ -6,17 +5,17 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use hound::{WavSpec, WavWriter};
+
 use ratatui::style::Modifier;
 use ratatui::symbols;
 use ratatui::widgets::{Axis, Chart, Dataset, GraphType};
 use std::fs::File;
-use std::io::{stdout, BufWriter};
+use std::io::{stdout, BufWriter, Stdout};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use std::time::Duration;
 
-use chrono::{Datelike, Timelike};
 use crossterm::event::{self, KeyCode};
 
 use ratatui::{
@@ -35,14 +34,25 @@ fn calculate_rms(samples: &[f32]) -> f64 {
     mean.sqrt()
 }
 
+#[allow(dead_code)]
+enum RecordingState {
+    AskingInfo,
+    Recording,
+    Paused,
+    Stopped,
+}
+
 fn record_tui(
     shared_waveform_data: Arc<RwLock<Vec<f32>>>,
     is_recording: Arc<AtomicBool>,
-) -> Result<()> {
+    recording_state: Arc<Mutex<RecordingState>>,
+) -> anyhow::Result<()> {
     // let mut waveform_data = Vec::new();
-    let start_time = Instant::now();
+    let mut start_time = Instant::now();
     let refresh_interval = Duration::from_millis(100);
 
+    enable_raw_mode()?;
+    execute!(stdout(), EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     terminal.clear()?;
 
@@ -51,89 +61,112 @@ fn record_tui(
         let duration = now.duration_since(start_time);
         let recording_time = format!("Recording Time: {:.2}s", duration.as_secs_f32());
 
-        terminal.draw(|f| {
-            let waveform_data = shared_waveform_data.read().unwrap(); // 获取读锁
-            let size = f.size();
-
-            let width = size.width as usize;
-
-            let samples_to_use = std::cmp::min(width * 128, waveform_data.len());
-
-            let recent_samples = &waveform_data[waveform_data.len() - samples_to_use..];
-
-            let data_vec: Vec<(f64, f64)> = recent_samples
-                .chunks(128)
-                .enumerate()
-                .map(|(x, samples)| {
-                    let rms = calculate_rms(samples);
-
-                    let x = x as f64;
-                    (x, rms)
-                })
-                .collect();
-
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(
-                    [
-                        Constraint::Percentage(10),
-                        Constraint::Percentage(80),
-                        Constraint::Min(4),
-                    ]
-                    .as_ref(),
-                )
-                .split(size);
-
-            let block = Block::default().title("Recording").borders(Borders::NONE);
-            let time_paragraph = Paragraph::new(Text::raw(&recording_time))
-                .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD));
-            f.render_widget(block, chunks[0]);
-            f.render_widget(time_paragraph, chunks[0]);
-
-            let label = Span::styled(
-                format!("press esc to exit tui and finish recording..."),
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::ITALIC | Modifier::BOLD),
-            );
-
-            f.render_widget(Paragraph::new(label), chunks[2]);
-
-            let datasets = vec![Dataset::default()
-                .marker(symbols::Marker::Braille)
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(Color::Red))
-                .data(&data_vec)];
-
-            let chart = Chart::new(datasets)
-                .x_axis(
-                    Axis::default()
-                        // .title("X Axis")
-                        .style(Style::default().fg(Color::Gray))
-                        // .labels(x_labels)
-                        .bounds([0., width as f64]),
-                )
-                .y_axis(
-                    Axis::default()
-                        // .title("RMS")
-                        .style(Style::default().fg(Color::Gray))
-                        .bounds([0., 1.]),
-                );
-            f.render_widget(chart, chunks[1]);
-
-            // render_console(f, chunks[2]);
-        })?;
+        if let Ok(rstate) = recording_state.lock() {
+            match *rstate {
+                RecordingState::Recording => {
+                    draw_rec_waveform(&mut terminal, shared_waveform_data.clone(), recording_time)?;
+                }
+                _ => {}
+            }
+        }
 
         if event::poll(refresh_interval)? {
             if let event::Event::Key(event) = event::read()? {
                 if event.code == KeyCode::Esc {
                     is_recording.store(false, Ordering::SeqCst);
                     break;
+                } else if event.code == KeyCode::Backspace {
+                    // TODO: add pause functionality
+                } else if event.code == KeyCode::Enter {
+                    start_time = Instant::now();
+                    if let Ok(mut rstate) = recording_state.lock() {
+                        *rstate = RecordingState::Recording;
+                    }
                 }
             }
         }
     }
 
+    execute!(stdout(), LeaveAlternateScreen)?;
+    disable_raw_mode()?;
+    Ok(())
+}
+
+fn draw_rec_waveform(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    shared_waveform_data: Arc<RwLock<Vec<f32>>>,
+    recording_time: String,
+) -> anyhow::Result<()> {
+    terminal.draw(|f| {
+        let waveform_data = shared_waveform_data.read().unwrap();
+        let size = f.size();
+
+        let width = size.width as usize;
+
+        let samples_to_use = std::cmp::min(width * 128, waveform_data.len());
+
+        let recent_samples = &waveform_data[waveform_data.len() - samples_to_use..];
+
+        let data_vec: Vec<(f64, f64)> = recent_samples
+            .chunks(128)
+            .enumerate()
+            .map(|(x, samples)| {
+                let rms = calculate_rms(samples);
+
+                let x = x as f64;
+                (x, rms)
+            })
+            .collect();
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                [
+                    Constraint::Percentage(10),
+                    Constraint::Percentage(80),
+                    Constraint::Min(4),
+                ]
+                .as_ref(),
+            )
+            .split(size);
+
+        let block = Block::default().title("Recording").borders(Borders::NONE);
+        let time_paragraph = Paragraph::new(Text::raw(&recording_time))
+            .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD));
+        f.render_widget(block, chunks[0]);
+        f.render_widget(time_paragraph, chunks[0]);
+
+        let label = Span::styled(
+            format!("press esc to exit tui and finish recording..."),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::ITALIC | Modifier::BOLD),
+        );
+
+        f.render_widget(Paragraph::new(label), chunks[2]);
+
+        let datasets = vec![Dataset::default()
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(Color::Red))
+            .data(&data_vec)];
+
+        let chart = Chart::new(datasets)
+            .x_axis(
+                Axis::default()
+                    // .title("X Axis")
+                    .style(Style::default().fg(Color::Gray))
+                    // .labels(x_labels)
+                    .bounds([0., width as f64]),
+            )
+            .y_axis(
+                Axis::default()
+                    // .title("RMS")
+                    .style(Style::default().fg(Color::Gray))
+                    .bounds([0., 1.]),
+            );
+        f.render_widget(chart, chunks[1]);
+    })?;
     Ok(())
 }
 
@@ -156,20 +189,12 @@ where
 }
 
 #[allow(unused_variables)]
-pub fn record_audio(output: &Option<String>, device: &str, jack: bool) -> Result<()> {
+pub fn record_audio(output: &Option<String>, device: &str, jack: bool) -> anyhow::Result<()> {
     let output = match output {
-        Some(o) => o.clone(),
+        Some(o) => o.replace(".wav", ""),
         None => {
             let now = chrono::Utc::now();
-            format!(
-                "{:04}{:02}{:02}-{:02}{:02}{:02}",
-                now.year(),
-                now.month(),
-                now.day(),
-                now.hour(),
-                now.minute(),
-                now.second()
-            )
+            format!("{}", now.to_rfc3339())
         }
     };
     let output = format!("{}.wav", output);
@@ -178,13 +203,7 @@ pub fn record_audio(output: &Option<String>, device: &str, jack: bool) -> Result
 
     let is_recording = Arc::new(AtomicBool::new(true));
     let is_recording_for_thread = is_recording.clone();
-
-    enable_raw_mode()?;
-    execute!(stdout(), EnterAlternateScreen)?;
-
-    let backend = CrosstermBackend::new(stdout());
-    let mut terminal = Terminal::new(backend)?;
-    terminal.hide_cursor()?;
+    let recording_state = Arc::new(Mutex::new(RecordingState::Recording));
 
     // Conditionally compile with jack if the feature is specified.
     #[cfg(all(
@@ -312,12 +331,15 @@ pub fn record_audio(output: &Option<String>, device: &str, jack: bool) -> Result
         Ok(())
     });
 
-    record_tui(shared_waveform_data, is_recording.clone())?;
+    record_tui(
+        shared_waveform_data,
+        is_recording.clone(),
+        recording_state.clone(),
+    )?;
+
     is_recording.store(false, Ordering::SeqCst);
     recording_thread.join().unwrap()?;
 
-    disable_raw_mode()?;
-    execute!(stdout(), LeaveAlternateScreen)?;
     Ok(())
 }
 
