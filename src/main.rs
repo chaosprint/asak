@@ -7,6 +7,9 @@ use record::record_audio;
 mod playback;
 use playback::play_audio;
 
+mod monitor;
+use monitor::start_monitoring;
+
 /// Audio Swiss Army knife written in Rust. Like Sox but interative with TUI.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -39,6 +42,8 @@ enum Commands {
     Rec(RecArgs),
     /// Play an audio file
     Play(PlayArgs),
+    /// Monitor audio input with scopes
+    Monitor,
 }
 
 /// Arguments used for the `rec` command
@@ -152,7 +157,7 @@ fn main() {
                                 options.push(format!("{}", path));
                             }
                         }
-                        if options.len() == 0 {
+                        if options.is_empty() {
                             println!("No wav files found in current directory");
                         } else {
                             let ans: Result<String, InquireError> =
@@ -165,6 +170,9 @@ fn main() {
                     }
                 }
             }
+        }
+        Commands::Monitor => {
+            start_monitoring().unwrap();
         }
     }
 }
