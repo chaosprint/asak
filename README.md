@@ -42,6 +42,7 @@ asak play hello.wav
 
 - [x] record audio
 - [x] basic audio playback
+- [x] monitoring an input device with an output device
 - [ ] rec device, dur, sr, ch, fmt
 - [ ] play device, dur, sr, ch, fmt
 - [ ] playback live pos control

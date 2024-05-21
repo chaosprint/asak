@@ -25,14 +25,13 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     prelude::{CrosstermBackend, Terminal},
     style::{Color, Style},
-    text::Span,
-    widgets::Paragraph,
-    widgets::{Block, Borders},
+    text::{Span, Text},
+    widgets::{BarChart, Paragraph},
 };
 
 use ratatui::style::Modifier;
-use ratatui::symbols;
-use ratatui::widgets::{Axis, Chart, Dataset, GraphType};
+
+const BUFFER_LENGTH: usize = 4096;
 
 pub fn start_monitoring() -> Result<()> {
     let shared_waveform_data: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
@@ -104,7 +103,12 @@ pub fn start_monitoring() -> Result<()> {
         _ => return Err(anyhow::anyhow!("Unsupported sample format")),
     };
 
-    record_tui(shared_waveform_data, is_monitoring)?;
+    record_tui(
+        shared_waveform_data,
+        is_monitoring,
+        &selected_input,
+        &selected_output,
+    )?;
     Ok(())
 }
 
@@ -119,7 +123,7 @@ fn build_stream<T>(
 where
     T: cpal::Sample + Send + 'static + Default + SizedSample + Into<f32>,
 {
-    let (tx, rx) = bounded::<T>(4096);
+    let (tx, rx) = bounded::<T>(BUFFER_LENGTH);
     // let is_monitoring_clone = Arc::clone(&is_monitoring);
     let input_stream = input_device.build_input_stream(
         input_config,
@@ -129,7 +133,7 @@ where
                 for &sample in data.iter() {
                     let sample_f32: f32 = sample.into();
                     waveform.push(sample_f32);
-                    if waveform.len() > 4096 {
+                    if waveform.len() > BUFFER_LENGTH {
                         waveform.remove(0);
                     }
                     if tx.send(sample).is_err() {
@@ -166,6 +170,8 @@ where
 fn record_tui(
     shared_waveform_data: Arc<Mutex<Vec<f32>>>,
     is_monitoring: Arc<AtomicBool>,
+    selected_input: &str,
+    selected_output: &str,
 ) -> Result<()> {
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
@@ -173,7 +179,12 @@ fn record_tui(
     terminal.clear()?;
 
     loop {
-        draw_rec_waveform(&mut terminal, shared_waveform_data.clone())?;
+        draw_rec_waveform(
+            &mut terminal,
+            shared_waveform_data.clone(),
+            selected_input,
+            selected_output,
+        )?;
         let refresh_interval = Duration::from_millis(100);
         if event::poll(refresh_interval)? {
             if let event::Event::Key(event) = event::read()? {
@@ -193,27 +204,15 @@ fn record_tui(
 fn draw_rec_waveform(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     shared_waveform_data: Arc<Mutex<Vec<f32>>>,
+    selected_input: &str,
+    selected_output: &str,
 ) -> Result<()> {
     terminal.draw(|f| {
         let waveform_data = shared_waveform_data.lock().unwrap();
+
+        let rms = calculate_rms(&waveform_data);
+        let peak = waveform_data.iter().fold(0., |acc, &x| x.abs().max(acc));
         let size = f.size();
-
-        let width = size.width as usize;
-
-        let samples_to_use = std::cmp::min(width * 128, waveform_data.len());
-
-        let recent_samples = &waveform_data[waveform_data.len() - samples_to_use..];
-
-        let data_vec: Vec<(f64, f64)> = recent_samples
-            .chunks(128)
-            .enumerate()
-            .map(|(x, samples)| {
-                let rms = calculate_rms(samples);
-
-                let x = x as f64;
-                (x, rms)
-            })
-            .collect();
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -227,6 +226,18 @@ fn draw_rec_waveform(
             )
             .split(size);
 
+        let devices = Paragraph::new(Text::raw(format!(
+            "INPUT: {};\t  OUTPUT: {};\t MAX VALUE: 100",
+            selected_input, selected_output
+        )))
+        .style(
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        );
+        // f.render_widget(block, chunks[0]);
+        f.render_widget(devices, chunks[0]);
+
         let label = Span::styled(
             "Press ENTER to exit TUI and stop monitoring...",
             Style::default()
@@ -236,23 +247,17 @@ fn draw_rec_waveform(
 
         f.render_widget(Paragraph::new(label), chunks[2]);
 
-        let datasets = vec![Dataset::default()
-            .marker(symbols::Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(Color::Red))
-            .data(&data_vec)];
+        let data = vec![("RMS", (rms * 100.) as u64), ("PEAK", (peak * 100.) as u64)];
 
-        let chart = Chart::new(datasets)
-            .x_axis(
-                Axis::default()
-                    .style(Style::default().fg(Color::Gray))
-                    .bounds([0., width as f64]),
-            )
-            .y_axis(
-                Axis::default()
-                    .style(Style::default().fg(Color::Gray))
-                    .bounds([0., 1.]),
-            );
+        let chart = BarChart::default()
+            // .block(Block::bordered().title("Data1"))
+            .data(&data)
+            .bar_width(9)
+            .bar_gap(6)
+            .max(100)
+            .bar_style(Style::default().fg(Color::Yellow))
+            .value_style(Style::default().fg(Color::Black).bg(Color::Yellow));
+
         f.render_widget(chart, chunks[1]);
     })?;
     Ok(())
