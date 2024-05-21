@@ -2,10 +2,12 @@ use std::{
     io::{stdout, Stdout},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     time::Duration,
 };
+
+use parking_lot::Mutex;
 
 use anyhow::Result;
 use cpal::{
@@ -30,9 +32,11 @@ use ratatui::{
 };
 
 use ratatui::style::Modifier;
+use ringbuf::{storage::Heap, traits::*, HeapRb, SharedRb};
 
 pub fn start_monitoring(buffer_length: usize) -> Result<()> {
-    let shared_waveform_data: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+    let rb = HeapRb::<f32>::new(buffer_length);
+    let shared_waveform_data = Arc::new(Mutex::new(rb));
     let shared_waveform_data_for_audio_thread = shared_waveform_data.clone();
     let is_monitoring = Arc::new(AtomicBool::new(true));
 
@@ -118,7 +122,7 @@ fn build_stream<T>(
     output_device: &cpal::Device,
     output_config: &cpal::StreamConfig,
     is_monitoring: Arc<AtomicBool>,
-    shared_waveform_data: Arc<Mutex<Vec<f32>>>,
+    shared_waveform_data: Arc<Mutex<SharedRb<Heap<f32>>>>,
     buffer_length: usize,
 ) -> Result<(), anyhow::Error>
 where
@@ -130,13 +134,13 @@ where
         input_config,
         move |data: &[T], _: &cpal::InputCallbackInfo| {
             if is_monitoring.load(Ordering::SeqCst) {
-                let mut waveform = shared_waveform_data.lock().unwrap();
+                let mut waveform = shared_waveform_data.lock();
                 for &sample in data.iter() {
                     let sample_f32: f32 = sample.into();
-                    waveform.push(sample_f32);
-                    if waveform.len() > buffer_length {
-                        waveform.remove(0);
-                    }
+                    (*waveform).push_overwrite(sample_f32);
+                    // if waveform.len() > buffer_length {
+                    //     waveform.remove(0);
+                    // }
                     if tx.send(sample).is_err() {
                         eprintln!("Buffer overflow, dropping sample");
                     }
@@ -169,7 +173,7 @@ where
 }
 
 fn record_tui(
-    shared_waveform_data: Arc<Mutex<Vec<f32>>>,
+    shared_waveform_data: Arc<Mutex<SharedRb<Heap<f32>>>>,
     is_monitoring: Arc<AtomicBool>,
     selected_input: &str,
     selected_output: &str,
@@ -204,14 +208,14 @@ fn record_tui(
 
 fn draw_rec_waveform(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    shared_waveform_data: Arc<Mutex<Vec<f32>>>,
+    shared_waveform_data: Arc<Mutex<SharedRb<Heap<f32>>>>,
     selected_input: &str,
     selected_output: &str,
 ) -> Result<()> {
     terminal.draw(|f| {
-        let waveform_data = shared_waveform_data.lock().unwrap();
-
-        let rms = calculate_rms(&waveform_data);
+        let waveform_data = shared_waveform_data.lock();
+        let waveform: Vec<f32> = waveform_data.iter().copied().collect();
+        let rms = calculate_rms(&waveform);
         let peak = waveform_data.iter().fold(0., |acc, &x| x.abs().max(acc));
         let size = f.size();
 
@@ -263,8 +267,9 @@ fn draw_rec_waveform(
     Ok(())
 }
 
-fn calculate_rms(samples: &[f32]) -> f64 {
-    let square_sum: f64 = samples.iter().map(|&sample| (sample as f64).powi(2)).sum();
-    let mean = square_sum / samples.len() as f64;
+fn calculate_rms(samples: &[f32]) -> f32 {
+    // let samples = samples.lock();
+    let square_sum: f32 = samples.iter().map(|&sample| (sample).powi(2)).sum();
+    let mean: f32 = square_sum / samples.len() as f32;
     mean.sqrt()
 }

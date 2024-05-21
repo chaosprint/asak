@@ -1,6 +1,6 @@
 [package]
 name = "asak"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 keywords = ["audio", "music", "DSP", "synth", "synthesizer"]
 readme = "README.md"
@@ -24,6 +24,7 @@ inquire = "0.7.4"
 parking_lot = "0.12.1"
 rand = "0.8.5"
 ratatui = "0.26.1"
+ringbuf = "0.4.1"
 smallvec = "1.13.1"
 
 [features]
