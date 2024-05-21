@@ -31,9 +31,7 @@ use ratatui::{
 
 use ratatui::style::Modifier;
 
-const BUFFER_LENGTH: usize = 4096;
-
-pub fn start_monitoring() -> Result<()> {
+pub fn start_monitoring(buffer_length: usize) -> Result<()> {
     let shared_waveform_data: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
     let shared_waveform_data_for_audio_thread = shared_waveform_data.clone();
     let is_monitoring = Arc::new(AtomicBool::new(true));
@@ -83,6 +81,7 @@ pub fn start_monitoring() -> Result<()> {
             &config.clone().into(),
             Arc::clone(&is_monitoring),
             shared_waveform_data_for_audio_thread,
+            buffer_length,
         )?,
         cpal::SampleFormat::I16 => build_stream::<i16>(
             &input_device,
@@ -91,6 +90,7 @@ pub fn start_monitoring() -> Result<()> {
             &config.clone().into(),
             Arc::clone(&is_monitoring),
             shared_waveform_data_for_audio_thread,
+            buffer_length,
         )?,
         cpal::SampleFormat::U16 => build_stream::<u16>(
             &input_device,
@@ -99,6 +99,7 @@ pub fn start_monitoring() -> Result<()> {
             &config.clone().into(),
             Arc::clone(&is_monitoring),
             shared_waveform_data_for_audio_thread,
+            buffer_length,
         )?,
         _ => return Err(anyhow::anyhow!("Unsupported sample format")),
     };
@@ -119,11 +120,12 @@ fn build_stream<T>(
     output_config: &cpal::StreamConfig,
     is_monitoring: Arc<AtomicBool>,
     shared_waveform_data: Arc<Mutex<Vec<f32>>>,
+    buffer_length: usize,
 ) -> Result<(), anyhow::Error>
 where
     T: cpal::Sample + Send + 'static + Default + SizedSample + Into<f32>,
 {
-    let (tx, rx) = bounded::<T>(BUFFER_LENGTH);
+    let (tx, rx) = bounded::<T>(buffer_length);
     // let is_monitoring_clone = Arc::clone(&is_monitoring);
     let input_stream = input_device.build_input_stream(
         input_config,
@@ -133,7 +135,7 @@ where
                 for &sample in data.iter() {
                     let sample_f32: f32 = sample.into();
                     waveform.push(sample_f32);
-                    if waveform.len() > BUFFER_LENGTH {
+                    if waveform.len() > buffer_length {
                         waveform.remove(0);
                     }
                     if tx.send(sample).is_err() {

@@ -43,7 +43,7 @@ enum Commands {
     /// Play an audio file
     Play(PlayArgs),
     /// Monitor audio input with scopes
-    Monitor,
+    Monitor(MonitorArgs),
 }
 
 /// Arguments used for the `rec` command
@@ -60,6 +60,14 @@ struct PlayArgs {
     /// Path to the audio file to play; must be wav format for now, e.g. `input.wav`
     #[arg(required = false)]
     input: Option<String>,
+}
+
+/// Arguments used for the `monitor` command
+#[derive(Args, Debug)]
+struct MonitorArgs {
+    /// Buffer size for the audio input monitoring, defaults to 1024, the higher the value the more latency
+    #[arg(required = false, short, long)]
+    buffer_size: Option<usize>,
 }
 
 fn main() {
@@ -171,8 +179,9 @@ fn main() {
                 }
             }
         }
-        Commands::Monitor => {
-            start_monitoring().unwrap();
+        Commands::Monitor(args) => {
+            let buffer_size = args.buffer_size.unwrap_or(1024);
+            start_monitoring(buffer_size).unwrap();
         }
     }
 }
