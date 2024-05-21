@@ -72,7 +72,6 @@ pub fn start_monitoring(buffer_length: usize) -> Result<()> {
 
     let stream_format = input_config.sample_format();
 
-    // let audio_thread = std::thread::spawn(move || {
     match stream_format {
         cpal::SampleFormat::F32 => build_stream::<f32>(
             &input_device,
@@ -252,7 +251,6 @@ fn draw_rec_waveform(
         let data = vec![("RMS", (rms * 100.) as u64), ("PEAK", (peak * 100.) as u64)];
 
         let chart = BarChart::default()
-            // .block(Block::bordered().title("Data1"))
             .data(&data)
             .bar_width(9)
             .bar_gap(6)
