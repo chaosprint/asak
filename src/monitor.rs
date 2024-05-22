@@ -28,7 +28,7 @@ use ratatui::{
     prelude::{CrosstermBackend, Terminal, *},
     style::{Color, Style},
     text::{Span, Text},
-    widgets::{Block, Borders, Gauge, Paragraph},
+    widgets::{Block, Borders, Gauge, LineGauge, Paragraph},
 };
 
 use ratatui::style::Modifier;
@@ -222,18 +222,18 @@ fn draw_rec_waveform(
             .constraints(
                 [
                     Constraint::Length(2),
-                    Constraint::Length(1),
+                    // Constraint::Length(1),
                     Constraint::Length(1),
                     // Constraint::Length(4),
                     // Constraint::Length(4),
-                    Constraint::Length(4),
-                    Constraint::Length(4),
-                    Constraint::Min(4),
+                    Constraint::Length(3),
+                    Constraint::Length(3),
+                    Constraint::Min(3),
                 ]
                 .as_ref(),
             );
 
-        let [title, indicator, _padding, rect_left, rect_right, help] = vertical.areas(f.size());
+        let [title, indicator, rect_left, rect_right, help] = vertical.areas(f.size());
 
         let devices = Paragraph::new(Text::raw(format!(
             "INPUT: {};\t  OUTPUT: {};",
@@ -271,6 +271,20 @@ fn draw_rec_waveform(
         } else {
             Color::Green
         };
+
+        let line_gauge_test = LineGauge::default()
+            // .block(Block::bordered().title("Progress"))
+            .gauge_style(
+                Style::default()
+                    .fg(Color::Green)
+                    .bg(Color::Red)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .label("")
+            .line_set(symbols::line::THICK)
+            .ratio(0.9);
+
+        f.render_widget(line_gauge_test, indicator);
 
         // let peak_db_left =  (20. * level[1].0.log10()) as i32;
         // let peak_db_right = (20. * level[1].0.log10()) as i32;
@@ -342,24 +356,24 @@ fn draw_rec_waveform(
         f.render_widget(g, rect_right);
 
         // let peak_left = (level[0].1 * 90.) as u64;
-        let [low, high] =
-            Layout::horizontal([Constraint::Percentage(90), Constraint::Percentage(10)])
-                .areas(indicator);
+        // let [low, high] =
+        //     Layout::horizontal([Constraint::Percentage(90), Constraint::Percentage(10)])
+        //         .areas(indicator);
 
-        // let red_line = Block::default()
+        // // let red_line = Block::default()
+        // //     .borders(Borders::NONE)
+        // //     .style(Style::default().bg(Color::Red));
+
+        // // f.render_widget(red_line, clippy_indicator);
+
+        // let low_level_rect = Block::default()
+        //     .borders(Borders::NONE)
+        //     .style(Style::default().bg(Color::Green));
+        // f.render_widget(low_level_rect, low);
+        // let high_level_rect = Block::default()
         //     .borders(Borders::NONE)
         //     .style(Style::default().bg(Color::Red));
-
-        // f.render_widget(red_line, clippy_indicator);
-
-        let low_level_rect = Block::default()
-            .borders(Borders::NONE)
-            .style(Style::default().bg(Color::Green));
-        f.render_widget(low_level_rect, low);
-        let high_level_rect = Block::default()
-            .borders(Borders::NONE)
-            .style(Style::default().bg(Color::Red));
-        f.render_widget(high_level_rect, high);
+        // f.render_widget(high_level_rect, high);
     })?;
     Ok(())
 }

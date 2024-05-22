@@ -106,9 +106,7 @@ fn main() {
                         }
                         .prompt();
                         match output {
-                            Ok(output) => {
-                                record_audio(&args.output, &cli.device, cli.jack).unwrap()
-                            }
+                            Ok(output) => record_audio(output, &cli.device, cli.jack).unwrap(),
                             Err(_) => println!("Recording cancelled."),
                         }
                     }
@@ -183,9 +181,7 @@ fn main() {
                             let ans: Result<String, InquireError> =
                                 Select::new("Select a wav file to play", options).prompt();
                             match ans {
-                                Ok(input) => {
-                                    play_audio(&args.input, &cli.device, cli.jack).unwrap()
-                                }
+                                Ok(input) => play_audio(input, &cli.device, cli.jack).unwrap(),
                                 Err(_) => println!("Playback cancelled."),
                             }
                         }
