@@ -27,9 +27,8 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     prelude::{CrosstermBackend, Terminal, *},
     style::{Color, Style},
-    symbols,
-    text::{Line, Span, Text},
-    widgets::{BarChart, Block, Borders, Gauge, LineGauge, Paragraph},
+    text::{Span, Text},
+    widgets::{Block, Borders, Gauge, Paragraph},
 };
 
 use ratatui::style::Modifier;
@@ -217,8 +216,6 @@ fn draw_rec_waveform(
     terminal.draw(|f| {
         let waveform_data = shared_waveform_data.lock();
         let waveform: Vec<f32> = waveform_data.iter().copied().collect();
-
-        let size = f.size();
 
         let vertical = Layout::default()
             .direction(Direction::Vertical)
