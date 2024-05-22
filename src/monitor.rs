@@ -25,10 +25,11 @@ use crossterm::terminal::{
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout},
-    prelude::{CrosstermBackend, Terminal},
+    prelude::{CrosstermBackend, Terminal, *},
     style::{Color, Style},
-    text::{Span, Text},
-    widgets::{BarChart, Paragraph},
+    symbols,
+    text::{Line, Span, Text},
+    widgets::{BarChart, Block, Borders, Gauge, LineGauge, Paragraph},
 };
 
 use ratatui::style::Modifier;
@@ -57,6 +58,10 @@ pub fn start_monitoring(buffer_length: usize) -> Result<()> {
         .devices()?
         .find(|device| device.name().unwrap() == selected_output)
         .unwrap();
+
+    // todo: selected_output has to be the default output device manually, which is a bug
+    // let output_device = host.default_output_device().unwrap();
+    // let selected_output = output_device.name().unwrap();
 
     let input_config = input_device.default_input_config()?;
     let output_config = output_device.default_output_config()?;
@@ -138,9 +143,6 @@ where
                 for &sample in data.iter() {
                     let sample_f32: f32 = sample.into();
                     (*waveform).push_overwrite(sample_f32);
-                    // if waveform.len() > buffer_length {
-                    //     waveform.remove(0);
-                    // }
                     if tx.send(sample).is_err() {
                         eprintln!("Buffer overflow, dropping sample");
                     }
@@ -215,33 +217,37 @@ fn draw_rec_waveform(
     terminal.draw(|f| {
         let waveform_data = shared_waveform_data.lock();
         let waveform: Vec<f32> = waveform_data.iter().copied().collect();
-        let rms = calculate_rms(&waveform);
-        let peak = waveform_data.iter().fold(0., |acc, &x| x.abs().max(acc));
+
         let size = f.size();
 
-        let chunks = Layout::default()
+        let vertical = Layout::default()
             .direction(Direction::Vertical)
             .constraints(
                 [
-                    Constraint::Percentage(10),
-                    Constraint::Percentage(80),
+                    Constraint::Length(2),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                    // Constraint::Length(4),
+                    // Constraint::Length(4),
+                    Constraint::Length(4),
+                    Constraint::Length(4),
                     Constraint::Min(4),
                 ]
                 .as_ref(),
-            )
-            .split(size);
+            );
+
+        let [title, indicator, _padding, rect_left, rect_right, help] = vertical.areas(f.size());
 
         let devices = Paragraph::new(Text::raw(format!(
-            "INPUT: {};\t  OUTPUT: {};\t MAX VALUE: 100",
+            "INPUT: {};\t  OUTPUT: {};",
             selected_input, selected_output
         )))
         .style(
             Style::default()
-                .fg(Color::Green)
+                .fg(Color::Blue)
                 .add_modifier(Modifier::BOLD),
         );
-        // f.render_widget(block, chunks[0]);
-        f.render_widget(devices, chunks[0]);
+        f.render_widget(devices, title);
 
         let label = Span::styled(
             "Press ENTER to exit TUI and stop monitoring...",
@@ -250,26 +256,129 @@ fn draw_rec_waveform(
                 .add_modifier(Modifier::ITALIC | Modifier::BOLD),
         );
 
-        f.render_widget(Paragraph::new(label), chunks[2]);
+        f.render_widget(Paragraph::new(label), help);
 
-        let data = vec![("RMS", (rms * 100.) as u64), ("PEAK", (peak * 100.) as u64)];
+        let level = calculate_level(&waveform);
 
-        let chart = BarChart::default()
-            .data(&data)
-            .bar_width(9)
-            .bar_gap(6)
-            .max(100)
-            .bar_style(Style::default().fg(Color::Yellow))
-            .value_style(Style::default().fg(Color::Black).bg(Color::Yellow));
+        if level.len() < 2 {
+            return;
+        }
+        let left = (level[0].0 * 90.) as u64;
+        let right = (level[1].0 * 90.) as u64;
 
-        f.render_widget(chart, chunks[1]);
+        let db_left = (20. * level[0].0.log10()) as i32;
+        let db_right = (20. * level[1].0.log10()) as i32;
+        // audio clip indicator
+        let color = if left > 90 || right > 90 {
+            Color::Red
+        } else {
+            Color::Green
+        };
+
+        // let peak_db_left =  (20. * level[1].0.log10()) as i32;
+        // let peak_db_right = (20. * level[1].0.log10()) as i32;
+
+        // // render peak left as gauge
+        // let g = Gauge::default()
+        //     .block(Block::new().title("Left Peak").borders(Borders::ALL))
+        //     .gauge_style(color)
+        //     .label(Span::styled(
+        //         format!(
+        //             "{} db",
+        //             match peak_db_left {
+        //                 x if x < -90 => "-inf".to_string(),
+        //                 x => x.to_string(),
+        //             }
+        //         ),
+        //         Style::new().italic().bold().fg(Color::White),
+        //     ))
+        //     .ratio(level[0].1 as f64 * 0.9);
+        // f.render_widget(g, rect_peak_left);
+
+        // // render peak right as gauge
+        // let g = Gauge::default()
+        //     .block(Block::new().title("Right Peak").borders(Borders::ALL))
+        //     .gauge_style(color)
+        //     .label(Span::styled(
+        //         format!(
+        //             "{} db",
+        //             match peak_db_right {
+        //                 x if x < -90 => "-inf".to_string(),
+        //                 x => x.to_string(),
+        //             }
+        //         ),
+        //         Style::new().italic().bold().fg(Color::White),
+        //     ))
+        //     .ratio(level[1].1 as f64 * 0.9);
+        // f.render_widget(g, rect_peak_right);
+
+        let g = Gauge::default()
+            .block(Block::new().title("Left dB SPL").borders(Borders::ALL))
+            .gauge_style(color)
+            .label(Span::styled(
+                format!(
+                    "{} db",
+                    match db_left {
+                        x if x < -90 => "-inf".to_string(),
+                        x => x.to_string(),
+                    }
+                ),
+                Style::new().italic().bold().fg(Color::White),
+            ))
+            .ratio(level[0].0 as f64);
+        f.render_widget(g, rect_left);
+
+        let g = Gauge::default()
+            .block(Block::new().title("Right dB SPL").borders(Borders::ALL))
+            .gauge_style(color)
+            .label(Span::styled(
+                format!(
+                    "{} db",
+                    match db_right {
+                        x if x < -90 => "-inf".to_string(),
+                        x => x.to_string(),
+                    }
+                ),
+                Style::new().italic().bold().fg(Color::White),
+            ))
+            .ratio(level[1].0 as f64);
+        f.render_widget(g, rect_right);
+
+        // let peak_left = (level[0].1 * 90.) as u64;
+        let [low, high] =
+            Layout::horizontal([Constraint::Percentage(90), Constraint::Percentage(10)])
+                .areas(indicator);
+
+        // let red_line = Block::default()
+        //     .borders(Borders::NONE)
+        //     .style(Style::default().bg(Color::Red));
+
+        // f.render_widget(red_line, clippy_indicator);
+
+        let low_level_rect = Block::default()
+            .borders(Borders::NONE)
+            .style(Style::default().bg(Color::Green));
+        f.render_widget(low_level_rect, low);
+        let high_level_rect = Block::default()
+            .borders(Borders::NONE)
+            .style(Style::default().bg(Color::Red));
+        f.render_widget(high_level_rect, high);
     })?;
     Ok(())
 }
 
-fn calculate_rms(samples: &[f32]) -> f32 {
-    // let samples = samples.lock();
-    let square_sum: f32 = samples.iter().map(|&sample| (sample).powi(2)).sum();
-    let mean: f32 = square_sum / samples.len() as f32;
-    mean.sqrt()
+fn calculate_level(samples: &[f32]) -> Vec<(f32, f32)> {
+    let mut v = vec![];
+    for frame in samples.chunks(2) {
+        let square_sum: f32 = frame.iter().map(|&sample| (sample).powi(2)).sum();
+        let mean: f32 = square_sum / frame.len() as f32;
+        let rms = mean.sqrt();
+
+        let peak = frame
+            .iter()
+            .map(|&sample| sample.abs())
+            .max_by(|a, b| a.partial_cmp(b).unwrap());
+        v.push((rms, peak.unwrap()));
+    }
+    v
 }
