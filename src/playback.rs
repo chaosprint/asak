@@ -104,7 +104,7 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
                     };
                     let sample = sample / (1 << 23) as f32;
                     let channel = sample_count % num_channels;
-                    file_data[channel].push(sample as f32);
+                    file_data[channel].push(sample);
                     sample_count += 1;
                 }
             }
@@ -344,7 +344,7 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
                 );
             f.render_widget(chart, chunks[1]);
             let label = Span::styled(
-                format!("press ENTER to exit tui and stop playback."),
+                "press ENTER to exit tui and stop playback.",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::ITALIC | Modifier::BOLD),

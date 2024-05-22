@@ -162,7 +162,7 @@ fn main() {
                             let path = file.path().clone();
                             let path = path.to_str().unwrap();
                             if path.ends_with(".wav") {
-                                options.push(format!("{}", path));
+                                options.push(path.into());
                             }
                         }
                         if options.is_empty() {

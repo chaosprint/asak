@@ -61,11 +61,8 @@ fn record_tui(
         let duration = now.duration_since(start_time);
         let recording_time = format!("Recording Time: {:.2}s", duration.as_secs_f32());
 
-        match *recording_state.lock() {
-            RecordingState::Recording => {
-                draw_rec_waveform(&mut terminal, shared_waveform_data.clone(), recording_time)?;
-            }
-            _ => {}
+        if let RecordingState::Recording = *recording_state.lock() {
+            draw_rec_waveform(&mut terminal, shared_waveform_data.clone(), recording_time)?;
         }
 
         if event::poll(refresh_interval)? {
@@ -135,7 +132,7 @@ fn draw_rec_waveform(
         f.render_widget(time_paragraph, chunks[0]);
 
         let label = Span::styled(
-            format!("press ENTER to exit tui and finish recording..."),
+            "press ENTER to exit tui and finish recording...",
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::ITALIC | Modifier::BOLD),
