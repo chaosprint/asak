@@ -87,7 +87,32 @@ fn main() {
             ))]
             {
                 // If we're on the right platform and JACK is enabled, pass true to use JACK for playback
-                record_audio(&args.input, &cli.device, &cli.jack).unwrap();
+
+                match &args.output {
+                    Some(output) => {
+                        // let output = o;
+                        record_audio(output.clone(), &cli.device, false).unwrap();
+                    }
+                    None => {
+                        let now = chrono::Utc::now();
+                        let name = format!(
+                            "{}.wav",
+                            now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+                        );
+                        // let output = Text::new("What is your name?").placeholder(name).prompt();
+                        let output = Text {
+                            initial_value: Some(&name),
+                            ..Text::new("Please enter the output wav file name:")
+                        }
+                        .prompt();
+                        match output {
+                            Ok(output) => {
+                                record_audio(&args.output, &cli.device, cli.jack).unwrap()
+                            }
+                            Err(_) => println!("Recording cancelled."),
+                        }
+                    }
+                };
             }
             #[cfg(not(all(
                 any(
@@ -138,7 +163,34 @@ fn main() {
             ))]
             {
                 // If we're on the right platform and JACK is enabled, pass true to use JACK for playback
-                play_audio(&args.input, &cli.device, &cli.jack).unwrap();
+                match &args.input {
+                    Some(input) => play_audio(input, &cli.device, false).unwrap(),
+                    None => {
+                        let mut options: Vec<String> = vec![];
+                        // check current directory for wav files
+                        let files = std::fs::read_dir(".").unwrap();
+                        for file in files {
+                            let file = file.unwrap();
+                            let path = file.path().clone();
+                            let path = path.to_str().unwrap();
+                            if path.ends_with(".wav") {
+                                options.push(path.into());
+                            }
+                        }
+                        if options.is_empty() {
+                            println!("No wav files found in current directory");
+                        } else {
+                            let ans: Result<String, InquireError> =
+                                Select::new("Select a wav file to play", options).prompt();
+                            match ans {
+                                Ok(input) => {
+                                    play_audio(&args.input, &cli.device, cli.jack).unwrap()
+                                }
+                                Err(_) => println!("Playback cancelled."),
+                            }
+                        }
+                    }
+                }
             }
             #[cfg(not(all(
                 any(
