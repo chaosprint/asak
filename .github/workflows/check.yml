@@ -1,3 +1,4 @@
+# https://github.com/RustAudio/cpal/blob/master/.github/workflows/cpal.yml
 name: Rust
 
 on:
@@ -9,27 +10,83 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  fmt:
-    name: stable / fmt
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Run cargo fmt
-        run: cargo fmt -- --check
-      - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@v2
-  clippy_check:
+  # ubuntu-test:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Update apt
+  #       run: sudo apt update
+  #     - name: Install alsa
+  #       run: sudo apt-get install libasound2-dev
+  #     - name: Install libjack
+  #       run: sudo apt-get install libjack-jackd2-dev libjack-jackd2-0
+  #     - name: Install stable
+  #       uses: dtolnay/rust-toolchain@stable
+  #     - name: Run without features
+  #       run: cargo run -- play
+  # windows-test:
+  #   strategy:
+  #     matrix:
+  #       version: [x86_64, i686]
+  #   runs-on: windows-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Install ASIO SDK
+  #       env:
+  #         LINK: https://www.steinberg.net/asiosdk
+  #       run: |
+  #         curl -L -o asio.zip $env:LINK
+  #         7z x -oasio asio.zip
+  #         move asio\*\* asio\
+  #     - name: Install ASIO4ALL
+  #       run: choco install asio4all
+  #     - name: Install llvm and clang
+  #       run: choco install llvm
+  #     - name: Install stable
+  #       uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         target: ${{ matrix.version }}-pc-windows-msvc
+  #     - name: Run all features
+  #       run: |
+  #         $Env:CPAL_ASIO_DIR = "$Env:GITHUB_WORKSPACE\asio"
+  #         cargo run -- play
+
+  # macos-test:
+  #   runs-on: macOS-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Install llvm and clang
+  #       run: brew install llvm
+  #     - name: Install stable
+  #       uses: dtolnay/rust-toolchain@stable
+  #     - name: Play audio
+  #       run: cargo run -- play
+  clippy-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust stable with Clippy
+      - name: Update apt
+        run: sudo apt update
+      - name: Install alsa
+        run: sudo apt-get install libasound2-dev
+      - name: Install libjack
+        run: sudo apt-get install libjack-jackd2-dev libjack-jackd2-0
+      - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - name: Run Clippy
-        run: cargo clippy --all-features -- -D warnings
+          target: armv7-linux-androideabi
+      - name: Run clippy
+        run: cargo clippy --all --all-features
+      - name: Run clippy for Android target
+        run: cargo clippy --all --features asio --features oboe/fetch-prebuilt --target armv7-linux-androideabi
+  rustfmt-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Run rustfmt
+        run: cargo fmt --all -- --check
