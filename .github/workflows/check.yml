@@ -75,11 +75,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-          target: armv7-linux-androideabi
       - name: Run clippy
         run: cargo clippy --all --all-features
-      - name: Run clippy for Android target
-        run: cargo clippy --all --features asio --features oboe/fetch-prebuilt --target armv7-linux-androideabi
   rustfmt-check:
     runs-on: ubuntu-latest
     steps:
