@@ -38,6 +38,20 @@ asak play hello.wav
 
 > If no input name is provided, it will search current directory for `.wav` files and open an interactive menu.
 
+### monitor
+
+```sh
+asak monitor
+```
+
+> Reminder: ⚠️ Watch your volume when play the video below❗️
+
+https://github.com/chaosprint/asak/assets/35621141/f0876503-4dc7-4c92-b324-c36ec5b747d0
+
+
+
+> Known issue: you need to select the same output device as the one in your current system settings.
+
 ## roadmap?
 
 - [x] record audio
