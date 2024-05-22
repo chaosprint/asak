@@ -90,7 +90,6 @@ fn main() {
 
                 match &args.output {
                     Some(output) => {
-                        // let output = o;
                         record_audio(output.clone(), &cli.device, false).unwrap();
                     }
                     None => {
@@ -125,7 +124,6 @@ fn main() {
                 // If JACK is not available or the platform is unsupported, pass false to not use JACK
                 match &args.output {
                     Some(output) => {
-                        // let output = o;
                         record_audio(output.clone(), &cli.device, false).unwrap();
                     }
                     None => {
@@ -181,7 +179,7 @@ fn main() {
                             let ans: Result<String, InquireError> =
                                 Select::new("Select a wav file to play", options).prompt();
                             match ans {
-                                Ok(input) => play_audio(input, &cli.device, cli.jack).unwrap(),
+                                Ok(input) => play_audio(&input, &cli.device, cli.jack).unwrap(),
                                 Err(_) => println!("Playback cancelled."),
                             }
                         }
