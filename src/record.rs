@@ -1,24 +1,15 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, Sample, SampleFormat, SupportedStreamConfig};
+use cpal::{Sample, SampleFormat, SupportedStreamConfig};
+use crossbeam::channel::{unbounded, Receiver};
+use crossterm::event::{self, KeyCode};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use hound::{WavSpec, WavWriter};
-
-use parking_lot::Mutex;
 use ratatui::style::Modifier;
 use ratatui::symbols;
 use ratatui::widgets::{Axis, Chart, Dataset, GraphType};
-use std::fs::File;
-use std::io::{stdout, BufWriter, Stdout};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
-
-use std::time::Duration;
-
-use crossterm::event::{self, KeyCode};
-
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     prelude::{CrosstermBackend, Terminal, Text},
@@ -27,6 +18,10 @@ use ratatui::{
     widgets::Paragraph,
     widgets::{Block, Borders},
 };
+use std::io::{stdout, Stdout};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 
 fn calculate_rms(samples: &[f32]) -> f64 {
@@ -35,10 +30,7 @@ fn calculate_rms(samples: &[f32]) -> f64 {
     mean.sqrt()
 }
 
-fn record_tui(
-    shared_waveform_data: Arc<RwLock<Vec<f32>>>,
-    is_recording: Arc<AtomicBool>,
-) -> anyhow::Result<()> {
+fn record_tui(ui_rx: Receiver<Vec<f32>>, is_recording: Arc<AtomicBool>) -> anyhow::Result<()> {
     let start_time = Instant::now();
     let refresh_interval = Duration::from_millis(100);
 
@@ -47,25 +39,24 @@ fn record_tui(
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     terminal.clear()?;
 
+    let mut shared_waveform_data = Vec::new();
+
     loop {
         let now = Instant::now();
         let duration = now.duration_since(start_time);
         let recording_time = format!("Recording Time: {:.2}s", duration.as_secs_f32());
 
-        draw_rec_waveform(&mut terminal, shared_waveform_data.clone(), recording_time)?;
+        while let Ok(data) = ui_rx.try_recv() {
+            shared_waveform_data.extend(data);
+        }
+
+        draw_rec_waveform(&mut terminal, &shared_waveform_data, recording_time)?;
 
         if event::poll(refresh_interval)? {
             if let event::Event::Key(event) = event::read()? {
                 if event.code == KeyCode::Enter {
                     is_recording.store(false, Ordering::SeqCst);
                     break;
-                } else if event.code == KeyCode::Backspace {
-                    // TODO: add pause functionality
-                    // } else if event.code == KeyCode::Enter {
-                    // start_time = Instant::now();
-                    // if let Ok(mut rstate) = recording_state.lock() {
-                    //     *rstate = RecordingState::Recording;
-                    // }
                 }
             }
         }
@@ -78,17 +69,13 @@ fn record_tui(
 
 fn draw_rec_waveform(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    shared_waveform_data: Arc<RwLock<Vec<f32>>>,
+    waveform_data: &[f32],
     recording_time: String,
 ) -> anyhow::Result<()> {
     terminal.draw(|f| {
-        let waveform_data = shared_waveform_data.read().unwrap();
         let size = f.size();
-
         let width = size.width as usize;
-
         let samples_to_use = std::cmp::min(width * 128, waveform_data.len());
-
         let recent_samples = &waveform_data[waveform_data.len() - samples_to_use..];
 
         let data_vec: Vec<(f64, f64)> = recent_samples
@@ -96,7 +83,6 @@ fn draw_rec_waveform(
             .enumerate()
             .map(|(x, samples)| {
                 let rms = calculate_rms(samples);
-
                 let x = x as f64;
                 (x, rms)
             })
@@ -138,14 +124,11 @@ fn draw_rec_waveform(
         let chart = Chart::new(datasets)
             .x_axis(
                 Axis::default()
-                    // .title("X Axis")
                     .style(Style::default().fg(Color::Gray))
-                    // .labels(x_labels)
                     .bounds([0., width as f64]),
             )
             .y_axis(
                 Axis::default()
-                    // .title("RMS")
                     .style(Style::default().fg(Color::Gray))
                     .bounds([0., 1.]),
             );
@@ -154,31 +137,13 @@ fn draw_rec_waveform(
     Ok(())
 }
 
-type WavWriterHandle = Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>;
-
-fn write_input_data<T, U>(input: &[T], writer: &WavWriterHandle)
-where
-    T: Sample,
-    U: Sample + hound::Sample + FromSample<T>,
-{
-    if let Some(writer) = writer.lock().as_mut() {
-        for &sample in input.iter() {
-            let sample: U = U::from_sample(sample);
-            writer.write_sample(sample).ok();
-        }
-    }
-}
-
-#[allow(unused_variables)]
-pub fn record_audio(output: String, device: &str, jack: bool) -> anyhow::Result<()> {
+pub fn record_audio(output: String, device: &str, _jack: bool) -> anyhow::Result<()> {
     let output = format!("{}.wav", output.replace(".wav", ""));
-    let shared_waveform_data: Arc<RwLock<Vec<f32>>> = Arc::new(RwLock::new(Vec::new()));
-    let shared_waveform_data_for_audio_thread = shared_waveform_data.clone();
-
+    let (ui_tx, ui_rx) = unbounded();
+    let (writer_tx, writer_rx) = unbounded();
     let is_recording = Arc::new(AtomicBool::new(true));
     let is_recording_for_thread = is_recording.clone();
 
-    // Conditionally compile with jack if the feature is specified.
     #[cfg(all(
         any(
             target_os = "linux",
@@ -219,65 +184,57 @@ pub fn record_audio(output: String, device: &str, jack: bool) -> anyhow::Result<
     .expect("failed to find output device");
 
     let config = device.default_input_config().unwrap();
-
     let o = output.to_owned();
-    let recording_thread = std::thread::spawn(move || {
-        let path = std::path::Path::new(o.as_str());
-        let spec = wav_spec_from_config(&device.default_input_config().unwrap());
+    let spec = wav_spec_from_config(&device.default_input_config().unwrap());
 
-        let writer = WavWriter::create(path, spec).unwrap();
-        let writer = Arc::new(Mutex::new(Some(writer)));
-        // A flag to indicate that recording is in progress.
-        // println!("Begin recording...");
-        // Run the input stream on a separate thread.
-        let writer_2 = writer.clone();
+    let recording_thread = std::thread::spawn(move || {
         let err_fn = move |err| eprintln!("an error occurred on stream: {}", err);
         let stream = match config.sample_format() {
             cpal::SampleFormat::I8 => device.build_input_stream(
                 &config.into(),
-                move |data, _: &_| {
-                    if let Ok(mut waveform_data) = shared_waveform_data_for_audio_thread.write() {
-                        waveform_data
-                            .extend(data.iter().map(|&sample| sample as f32 / i8::MAX as f32));
-                    };
-
-                    write_input_data::<i8, i8>(data, &writer_2)
+                move |data: &[i8], _: &_| {
+                    let float_data: Vec<f32> = data
+                        .iter()
+                        .map(|&sample| sample.to_float_sample())
+                        .collect();
+                    ui_tx.send(float_data.clone()).ok();
+                    writer_tx.send(float_data).ok();
                 },
                 err_fn,
                 None,
             )?,
             cpal::SampleFormat::I16 => device.build_input_stream(
                 &config.into(),
-                move |data, _: &_| {
-                    if let Ok(mut waveform_data) = shared_waveform_data_for_audio_thread.write() {
-                        waveform_data
-                            .extend(data.iter().map(|&sample| sample as f32 / i16::MAX as f32));
-                    };
-
-                    write_input_data::<i16, i16>(data, &writer_2)
+                move |data: &[i16], _: &_| {
+                    let float_data: Vec<f32> = data
+                        .iter()
+                        .map(|&sample| sample.to_float_sample())
+                        .collect();
+                    ui_tx.send(float_data.clone()).ok();
+                    writer_tx.send(float_data).ok();
                 },
                 err_fn,
                 None,
             )?,
             cpal::SampleFormat::I32 => device.build_input_stream(
                 &config.into(),
-                move |data, _: &_| {
-                    if let Ok(mut waveform_data) = shared_waveform_data_for_audio_thread.write() {
-                        waveform_data
-                            .extend(data.iter().map(|&sample| sample as f32 / i32::MAX as f32));
-                    };
-                    write_input_data::<i32, i32>(data, &writer_2)
+                move |data: &[i32], _: &_| {
+                    let float_data: Vec<f32> = data
+                        .iter()
+                        .map(|&sample| sample.to_float_sample())
+                        .collect();
+                    ui_tx.send(float_data.clone()).ok();
+                    writer_tx.send(float_data).ok();
                 },
                 err_fn,
                 None,
             )?,
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &config.into(),
-                move |data, _: &_| {
-                    if let Ok(mut waveform_data) = shared_waveform_data_for_audio_thread.write() {
-                        waveform_data.extend(data);
-                    };
-                    write_input_data::<f32, f32>(data, &writer_2)
+                move |data: &[f32], _: &_| {
+                    let float_data: Vec<f32> = data.iter().cloned().collect();
+                    ui_tx.send(float_data.clone()).ok();
+                    writer_tx.send(float_data).ok();
                 },
                 err_fn,
                 None,
@@ -288,25 +245,42 @@ pub fn record_audio(output: String, device: &str, jack: bool) -> anyhow::Result<
                 )))
             }
         };
-        stream.play().unwrap();
+        stream.play()?;
 
         while is_recording_for_thread.load(Ordering::SeqCst) {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
-        stream.pause().unwrap();
-
-        if let Some(writer) = writer.lock().take() {
-            writer.finalize().unwrap();
-        }
-
+        stream.pause()?;
         Ok(())
     });
 
-    record_tui(shared_waveform_data, is_recording.clone())?;
+    let writer_thread = std::thread::spawn(move || -> anyhow::Result<()> {
+        let path = std::path::Path::new(&o);
 
+        let spec2 = WavSpec {
+            channels: spec.channels,
+            sample_rate: spec.sample_rate,
+            bits_per_sample: spec.bits_per_sample,
+            sample_format: hound::SampleFormat::Float,
+        };
+
+        let mut writer = WavWriter::create(path, spec2).unwrap();
+
+        while let Ok(data) = writer_rx.recv() {
+            for sample in data {
+                writer.write_sample(sample).ok();
+            }
+        }
+
+        writer.finalize().unwrap();
+        Ok(())
+    });
+
+    record_tui(ui_rx, is_recording.clone())?;
     is_recording.store(false, Ordering::SeqCst);
     recording_thread.join().unwrap()?;
+    writer_thread.join().unwrap()?;
 
     Ok(())
 }
