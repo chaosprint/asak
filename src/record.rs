@@ -137,7 +137,7 @@ fn draw_rec_waveform(
     Ok(())
 }
 
-pub fn record_audio(output: String, device: &str, _jack: bool) -> anyhow::Result<()> {
+pub fn record_audio(output: String, device: &str, jack: bool) -> anyhow::Result<()> {
     let output = format!("{}.wav", output.replace(".wav", ""));
     let (ui_tx, ui_rx) = unbounded();
     let (writer_tx, writer_rx) = unbounded();
@@ -173,6 +173,10 @@ pub fn record_audio(output: String, device: &str, _jack: bool) -> anyhow::Result
         )),
         not(feature = "jack")
     ))]
+    assert!(
+        !jack,
+        "jack is only supported on linux, dragonfly, freebsd, and netbsd"
+    );
     let host = cpal::default_host();
 
     let device = if device == "default" {
