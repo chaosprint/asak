@@ -35,18 +35,9 @@ fn calculate_rms(samples: &[f32]) -> f64 {
     mean.sqrt()
 }
 
-#[allow(dead_code)]
-enum RecordingState {
-    AskingInfo,
-    Recording,
-    Paused,
-    Stopped,
-}
-
 fn record_tui(
     shared_waveform_data: Arc<RwLock<Vec<f32>>>,
     is_recording: Arc<AtomicBool>,
-    recording_state: Arc<Mutex<RecordingState>>,
 ) -> anyhow::Result<()> {
     let start_time = Instant::now();
     let refresh_interval = Duration::from_millis(100);
@@ -61,9 +52,7 @@ fn record_tui(
         let duration = now.duration_since(start_time);
         let recording_time = format!("Recording Time: {:.2}s", duration.as_secs_f32());
 
-        if let RecordingState::Recording = *recording_state.lock() {
-            draw_rec_waveform(&mut terminal, shared_waveform_data.clone(), recording_time)?;
-        }
+        draw_rec_waveform(&mut terminal, shared_waveform_data.clone(), recording_time)?;
 
         if event::poll(refresh_interval)? {
             if let event::Event::Key(event) = event::read()? {
@@ -188,7 +177,6 @@ pub fn record_audio(output: String, device: &str, jack: bool) -> anyhow::Result<
 
     let is_recording = Arc::new(AtomicBool::new(true));
     let is_recording_for_thread = is_recording.clone();
-    let recording_state = Arc::new(Mutex::new(RecordingState::Recording));
 
     // Conditionally compile with jack if the feature is specified.
     #[cfg(all(
@@ -315,11 +303,7 @@ pub fn record_audio(output: String, device: &str, jack: bool) -> anyhow::Result<
         Ok(())
     });
 
-    record_tui(
-        shared_waveform_data,
-        is_recording.clone(),
-        recording_state.clone(),
-    )?;
+    record_tui(shared_waveform_data, is_recording.clone())?;
 
     is_recording.store(false, Ordering::SeqCst);
     recording_thread.join().unwrap()?;
