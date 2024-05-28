@@ -232,7 +232,7 @@ pub fn record_audio(output: String, device: &str, _jack: bool) -> anyhow::Result
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &config.into(),
                 move |data: &[f32], _: &_| {
-                    let float_data: Vec<f32> = data.iter().cloned().collect();
+                    let float_data: Vec<f32> = data.to_vec();
                     ui_tx.send(float_data.clone()).ok();
                     writer_tx.send(float_data).ok();
                 },

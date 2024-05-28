@@ -225,8 +225,7 @@ fn draw_rec_waveform(
     selected_output: &str,
 ) -> Result<()> {
     terminal.draw(|f| {
-        let waveform_data = shared_waveform_data;
-        let waveform: Vec<f32> = waveform_data.iter().copied().collect();
+        let waveform: Vec<f32> = shared_waveform_data.to_vec();
 
         let vertical = Layout::default()
             .direction(Direction::Vertical)
