@@ -7,15 +7,13 @@ use std::{
     time::Duration,
 };
 
-use parking_lot::Mutex;
-
 use anyhow::Result;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     SizedSample, SupportedStreamConfig,
 };
 
-use crossbeam::channel::bounded;
+use crossbeam::channel::{bounded, unbounded, Receiver, Sender};
 use inquire::Select;
 
 use crossterm::event::{self, KeyCode};
@@ -32,12 +30,12 @@ use ratatui::{
 };
 
 use ratatui::style::Modifier;
-use ringbuf::{storage::Heap, traits::*, HeapRb, SharedRb};
 
 pub fn start_monitoring(buffer_length: usize) -> Result<()> {
-    let rb = HeapRb::<f32>::new(buffer_length);
-    let shared_waveform_data = Arc::new(Mutex::new(rb));
-    let shared_waveform_data_for_audio_thread = shared_waveform_data.clone();
+    // let rb = HeapRb::<f32>::new(buffer_length);
+    let (ui_tx, ui_rx) = unbounded();
+    // let shared_waveform_data = Arc::new(Mutex::new(rb));
+    // let shared_waveform_data_for_audio_thread = shared_waveform_data.clone();
     let is_monitoring = Arc::new(AtomicBool::new(true));
 
     let host = cpal::default_host();
@@ -87,7 +85,8 @@ pub fn start_monitoring(buffer_length: usize) -> Result<()> {
             &output_device,
             &config.clone().into(),
             Arc::clone(&is_monitoring),
-            shared_waveform_data_for_audio_thread,
+            ui_tx,
+            // shared_waveform_data_for_audio_thread,
             buffer_length,
         )?,
         cpal::SampleFormat::I16 => build_stream::<i16>(
@@ -96,7 +95,8 @@ pub fn start_monitoring(buffer_length: usize) -> Result<()> {
             &output_device,
             &config.clone().into(),
             Arc::clone(&is_monitoring),
-            shared_waveform_data_for_audio_thread,
+            ui_tx,
+            // shared_waveform_data_for_audio_thread,
             buffer_length,
         )?,
         cpal::SampleFormat::U16 => build_stream::<u16>(
@@ -105,18 +105,14 @@ pub fn start_monitoring(buffer_length: usize) -> Result<()> {
             &output_device,
             &config.clone().into(),
             Arc::clone(&is_monitoring),
-            shared_waveform_data_for_audio_thread,
+            ui_tx,
+            // shared_waveform_data_for_audio_thread,
             buffer_length,
         )?,
         _ => return Err(anyhow::anyhow!("Unsupported sample format")),
     };
 
-    record_tui(
-        shared_waveform_data,
-        is_monitoring,
-        &selected_input,
-        &selected_output,
-    )?;
+    record_tui(ui_rx, is_monitoring, &selected_input, &selected_output)?;
     Ok(())
 }
 
@@ -126,7 +122,8 @@ fn build_stream<T>(
     output_device: &cpal::Device,
     output_config: &cpal::StreamConfig,
     is_monitoring: Arc<AtomicBool>,
-    shared_waveform_data: Arc<Mutex<SharedRb<Heap<f32>>>>,
+    ui_tx: Sender<Vec<f32>>,
+    // shared_waveform_data: Arc<Mutex<SharedRb<Heap<f32>>>>,
     buffer_length: usize,
 ) -> Result<(), anyhow::Error>
 where
@@ -138,10 +135,20 @@ where
         input_config,
         move |data: &[T], _: &cpal::InputCallbackInfo| {
             if is_monitoring.load(Ordering::SeqCst) {
-                let mut waveform = shared_waveform_data.lock();
+                // let mut waveform = shared_waveform_data.lock();
+
+                let waveform: Vec<f32> = data
+                    .iter()
+                    .map(|&sample| {
+                        let s: f32 = sample.into();
+                        s
+                    })
+                    .collect();
+                ui_tx.send(waveform).ok();
+
                 for &sample in data.iter() {
-                    let sample_f32: f32 = sample.into();
-                    (*waveform).push_overwrite(sample_f32);
+                    // let sample_f32: f32 = sample.into();
+                    // (*waveform).push_overwrite(sample_f32);
                     if tx.send(sample).is_err() {
                         eprintln!("Buffer overflow, dropping sample");
                     }
@@ -174,7 +181,7 @@ where
 }
 
 fn record_tui(
-    shared_waveform_data: Arc<Mutex<SharedRb<Heap<f32>>>>,
+    ui_rx: Receiver<Vec<f32>>,
     is_monitoring: Arc<AtomicBool>,
     selected_input: &str,
     selected_output: &str,
@@ -185,9 +192,13 @@ fn record_tui(
     terminal.clear()?;
 
     loop {
+        let mut waveform_data = Vec::new();
+        while let Ok(data) = ui_rx.try_recv() {
+            waveform_data = data;
+        }
         draw_rec_waveform(
             &mut terminal,
-            shared_waveform_data.clone(),
+            waveform_data,
             selected_input,
             selected_output,
         )?;
@@ -209,12 +220,12 @@ fn record_tui(
 
 fn draw_rec_waveform(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    shared_waveform_data: Arc<Mutex<SharedRb<Heap<f32>>>>,
+    shared_waveform_data: Vec<f32>,
     selected_input: &str,
     selected_output: &str,
 ) -> Result<()> {
     terminal.draw(|f| {
-        let waveform_data = shared_waveform_data.lock();
+        let waveform_data = shared_waveform_data;
         let waveform: Vec<f32> = waveform_data.iter().copied().collect();
 
         let vertical = Layout::default()
