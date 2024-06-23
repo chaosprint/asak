@@ -1,6 +1,6 @@
 # asak
 
-A cross-platform audio recording/playback CLI tool with TUI, written in Rust. The goal is to be an audio Swiss Army Knife (asak), like SoX but more interative and fun.
+A cross-platform audio recording/playback CLI tool with TUI, written in Rust. The goal is to be an audio Swiss Army Knife (asak), like SoX but more interactive and fun.
 
 ![Asak](./asak.gif)
 
