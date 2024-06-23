@@ -10,7 +10,7 @@ use playback::play_audio;
 mod monitor;
 use monitor::start_monitoring;
 
-/// Audio Swiss Army knife written in Rust. Like Sox but interative with TUI.
+/// Audio Swiss Army knife written in Rust. Like Sox but interactive with TUI.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
