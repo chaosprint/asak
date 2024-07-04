@@ -130,7 +130,7 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
     }
 
     // TODO: should be able to play any chan file in any chan system
-    if sys_chan == 2 && num_channels == 1 {
+    for i in num_channels..sys_chan {
         file_data.push(file_data[0].clone());
     }
 
