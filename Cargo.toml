@@ -26,6 +26,11 @@ rand = "0.8.5"
 ratatui = "0.26.1"
 smallvec = "1.13.1"
 
+[build-dependencies]
+clap = { version = "4.5.4", features = ["derive"] }
+clap_complete = "4.5.2"
+clap_mangen = "0.2.20"
+
 [features]
 default = ["cpal"]
 jack = ["cpal/jack"]
