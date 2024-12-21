@@ -1,6 +1,6 @@
 [package]
 name = "asak"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 keywords = ["audio", "music", "DSP", "synth", "synthesizer"]
 readme = "README.md"
@@ -49,7 +49,12 @@ ci = "github"
 # The installers to generate for each app
 installers = ["shell"]
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc"
+]
 # Publish jobs to run in CI
 pr-run-mode = "plan"
 # Whether to install an updater program
