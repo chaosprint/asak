@@ -181,12 +181,10 @@ pub fn record_audio(output: String, device: Option<u8>, jack: bool) -> anyhow::R
 
     let device = if device.is_none() {
         host.default_input_device()
+    } else if let Some(index) = device {
+        host.input_devices()?.nth(index as usize)
     } else {
-        if let Some(index) = device {
-            host.input_devices()?.nth(index as usize)
-        } else {
-            panic!("failed to find output device");
-        }
+        panic!("failed to find output device")
     }
     .expect("failed to find output device");
 
