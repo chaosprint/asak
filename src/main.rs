@@ -1,4 +1,5 @@
 use clap::Parser;
+use colored::*;
 
 mod record;
 use cpal::traits::{HostTrait, DeviceTrait};
@@ -34,7 +35,7 @@ fn main() {
 
                 match &args.output {
                     Some(output) => {
-                        record_audio(output.clone(), cli.device, false).unwrap();
+                        record_audio(output.clone(), args.device, false).unwrap();
                     }
                     None => {
                         let now = chrono::Utc::now();
@@ -49,7 +50,7 @@ fn main() {
                         }
                         .prompt();
                         match output {
-                            Ok(output) => record_audio(output, cli.device, cli.jack).unwrap(),
+                            Ok(output) => record_audio(output, args.device, cli.jack).unwrap(),
                             Err(_) => println!("Recording cancelled."),
                         }
                     }
@@ -68,7 +69,7 @@ fn main() {
                 // If JACK is not available or the platform is unsupported, pass false to not use JACK
                 match &args.output {
                     Some(output) => {
-                        record_audio(output.clone(), cli.device, false).unwrap();
+                        record_audio(output.clone(), args.device, false).unwrap();
                     }
                     None => {
                         let now = chrono::Utc::now();
@@ -83,7 +84,7 @@ fn main() {
                         }
                         .prompt();
                         match output {
-                            Ok(output) => record_audio(output, cli.device, false).unwrap(),
+                            Ok(output) => record_audio(output, args.device, false).unwrap(),
                             Err(_) => println!("Recording cancelled."),
                         }
                     }
@@ -104,7 +105,7 @@ fn main() {
             {
                 // If we're on the right platform and JACK is enabled, pass true to use JACK for playback
                 match &args.input {
-                    Some(input) => play_audio(input, cli.device, false).unwrap(),
+                    Some(input) => play_audio(input, args.device, false).unwrap(),
                     None => {
                         let mut options: Vec<String> = vec![];
                         // check current directory for wav files
@@ -123,7 +124,7 @@ fn main() {
                             let ans: Result<String, InquireError> =
                                 Select::new("Select a wav file to play", options).prompt();
                             match ans {
-                                Ok(input) => play_audio(&input, cli.device, cli.jack).unwrap(),
+                                Ok(input) => play_audio(&input, args.device, cli.jack).unwrap(),
                                 Err(_) => println!("Playback cancelled."),
                             }
                         }
@@ -142,7 +143,7 @@ fn main() {
             {
                 // If JACK is not available or the platform is unsupported, pass false to not use JACK
                 match &args.input {
-                    Some(input) => play_audio(input, cli.device, false).unwrap(),
+                    Some(input) => play_audio(input, args.device, false).unwrap(),
                     None => {
                         let mut options: Vec<String> = vec![];
                         // check current directory for wav files
@@ -161,7 +162,7 @@ fn main() {
                             let ans: Result<String, InquireError> =
                                 Select::new("Select a wav file to play", options).prompt();
                             match ans {
-                                Ok(input) => play_audio(&input, cli.device, false).unwrap(),
+                                Ok(input) => play_audio(&input, args.device, false).unwrap(),
                                 Err(_) => println!("Playback cancelled."),
                             }
                         }
@@ -178,15 +179,29 @@ fn main() {
             let in_devices = host.input_devices().unwrap();
             let out_devices = host.output_devices().unwrap();
 
-            println!("Input devices:");
-
+            println!("\n{}", "Available Audio Devices".bold().underline());
+            println!("\n{}", "Usage:".yellow());
+            println!("  Recording: {} {}", "asak rec --device".bright_black(), "<index>".cyan());
+            println!("  Playback: {} {}", "asak play --device".bright_black(), "<index>".cyan());
+            
+            println!("\n{}", "=== Input Devices ===".green().bold());
             for (index, device) in in_devices.enumerate() {
-                println!("input device {}: {}", index, device.name().unwrap());
+                println!("#{}: {}", 
+                    index.to_string().cyan(),
+                    device.name().unwrap()
+                );
             }
-            println!("Output devices:");
+
+            println!("\n{}", "=== Output Devices ===".blue().bold());
             for (index, device) in out_devices.enumerate() {
-                println!("output device {}: {}", index, device.name().unwrap());
+                println!("#{}: {}", 
+                    index.to_string().cyan(),
+                    device.name().unwrap()
+                );
             }
+
+            println!("\n{}", "Note: If no device is specified, the system default will be used.".italic());
+            println!();
         }
     }
 }

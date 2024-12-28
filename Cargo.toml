@@ -13,6 +13,7 @@ repository = "https://github.com/chaosprint/asak.git"
 anyhow = "1.0.80"
 chrono = "0.4.35"
 clap = { version = "4.5.1", features = ["derive"] }
+colored = "2.1.0"
 cpal = { version = "0.15.2", features = ["jack"], optional = true }
 crossbeam = "0.8.4"
 crossterm = "0.27.0"
