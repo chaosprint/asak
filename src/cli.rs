@@ -7,10 +7,6 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    /// The audio device to use
-    #[arg(short, long, default_value_t = String::from("default"))]
-    pub device: String,
-
     /// Use the JACK host
     #[cfg(all(
         any(
@@ -34,6 +30,8 @@ pub enum Commands {
     Play(PlayArgs),
     /// Monitor audio input with scopes
     Monitor(MonitorArgs),
+    /// List available audio devices
+    List,
 }
 
 /// Arguments used for the `rec` command
@@ -42,6 +40,9 @@ pub struct RecArgs {
     /// Path for the output audio file, e.g. `output`
     #[arg(required = false)]
     pub output: Option<String>,
+    /// The audio device index to use
+    #[arg(required = false, short, long)]
+    pub device: Option<u8>,
 }
 
 /// Arguments used for the `play` command
@@ -50,6 +51,9 @@ pub struct PlayArgs {
     /// Path to the audio file to play; must be wav format for now, e.g. `input.wav`
     #[arg(required = false)]
     pub input: Option<String>,
+    /// The audio device index to use
+    #[arg(required = false, short, long)]
+    pub device: Option<u8>,
 }
 
 /// Arguments used for the `monitor` command

@@ -137,7 +137,7 @@ fn draw_rec_waveform(
     Ok(())
 }
 
-pub fn record_audio(output: String, device: &str, jack: bool) -> anyhow::Result<()> {
+pub fn record_audio(output: String, device: Option<u8>, jack: bool) -> anyhow::Result<()> {
     let output = format!("{}.wav", output.replace(".wav", ""));
     let (ui_tx, ui_rx) = unbounded();
     let (writer_tx, writer_rx) = unbounded();
@@ -179,11 +179,15 @@ pub fn record_audio(output: String, device: &str, jack: bool) -> anyhow::Result<
     );
     let host = cpal::default_host();
 
-    let device = if device == "default" {
+    let device = if device.is_none() {
         host.default_input_device()
     } else {
-        host.input_devices()?
-            .find(|x| x.name().map(|y| y == device).unwrap_or(false))
+       if let Some(index) = device {
+            host.input_devices()?
+                .nth(index as usize)
+        } else {
+            panic!("failed to find output device");
+        }
     }
     .expect("failed to find output device");
 
