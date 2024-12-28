@@ -1,6 +1,7 @@
 use clap::Parser;
 
 mod record;
+use cpal::traits::{HostTrait, DeviceTrait};
 use inquire::{InquireError, Select, Text};
 use record::record_audio;
 
@@ -171,6 +172,21 @@ fn main() {
         Commands::Monitor(args) => {
             let buffer_size = args.buffer_size.unwrap_or(1024);
             start_monitoring(buffer_size).unwrap();
+        }
+        Commands::List => {
+            let host = cpal::default_host();
+            let in_devices = host.input_devices().unwrap();
+            let out_devices = host.output_devices().unwrap();
+
+            println!("Input devices:");
+
+            for (index, device) in in_devices.enumerate() {
+                println!("input device {}: {}", index, device.name().unwrap());
+            }
+            println!("Output devices:");
+            for (index, device) in out_devices.enumerate() {
+                println!("output device {}: {}", index, device.name().unwrap());
+            }
         }
     }
 }

@@ -34,6 +34,8 @@ pub enum Commands {
     Play(PlayArgs),
     /// Monitor audio input with scopes
     Monitor(MonitorArgs),
+    /// List available audio devices
+    List,
 }
 
 /// Arguments used for the `rec` command
