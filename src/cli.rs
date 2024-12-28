@@ -7,9 +7,9 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    /// The audio device to use
-    #[arg(short, long, default_value_t = String::from("default"))]
-    pub device: String,
+    /// The audio device index to use
+    #[arg(short, long)]
+    pub device: Option<u8>,
 
     /// Use the JACK host
     #[cfg(all(

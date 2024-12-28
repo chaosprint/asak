@@ -34,7 +34,7 @@ fn main() {
 
                 match &args.output {
                     Some(output) => {
-                        record_audio(output.clone(), &cli.device, false).unwrap();
+                        record_audio(output.clone(), cli.device, false).unwrap();
                     }
                     None => {
                         let now = chrono::Utc::now();
@@ -49,7 +49,7 @@ fn main() {
                         }
                         .prompt();
                         match output {
-                            Ok(output) => record_audio(output, &cli.device, cli.jack).unwrap(),
+                            Ok(output) => record_audio(output, cli.device, cli.jack).unwrap(),
                             Err(_) => println!("Recording cancelled."),
                         }
                     }
@@ -68,7 +68,7 @@ fn main() {
                 // If JACK is not available or the platform is unsupported, pass false to not use JACK
                 match &args.output {
                     Some(output) => {
-                        record_audio(output.clone(), &cli.device, false).unwrap();
+                        record_audio(output.clone(), cli.device, false).unwrap();
                     }
                     None => {
                         let now = chrono::Utc::now();
@@ -83,7 +83,7 @@ fn main() {
                         }
                         .prompt();
                         match output {
-                            Ok(output) => record_audio(output, &cli.device, false).unwrap(),
+                            Ok(output) => record_audio(output, cli.device, false).unwrap(),
                             Err(_) => println!("Recording cancelled."),
                         }
                     }
@@ -104,7 +104,7 @@ fn main() {
             {
                 // If we're on the right platform and JACK is enabled, pass true to use JACK for playback
                 match &args.input {
-                    Some(input) => play_audio(input, &cli.device, false).unwrap(),
+                    Some(input) => play_audio(input, cli.device, false).unwrap(),
                     None => {
                         let mut options: Vec<String> = vec![];
                         // check current directory for wav files
@@ -123,7 +123,7 @@ fn main() {
                             let ans: Result<String, InquireError> =
                                 Select::new("Select a wav file to play", options).prompt();
                             match ans {
-                                Ok(input) => play_audio(&input, &cli.device, cli.jack).unwrap(),
+                                Ok(input) => play_audio(&input, cli.device, cli.jack).unwrap(),
                                 Err(_) => println!("Playback cancelled."),
                             }
                         }
@@ -142,7 +142,7 @@ fn main() {
             {
                 // If JACK is not available or the platform is unsupported, pass false to not use JACK
                 match &args.input {
-                    Some(input) => play_audio(input, &cli.device, false).unwrap(),
+                    Some(input) => play_audio(input, cli.device, false).unwrap(),
                     None => {
                         let mut options: Vec<String> = vec![];
                         // check current directory for wav files
@@ -161,7 +161,7 @@ fn main() {
                             let ans: Result<String, InquireError> =
                                 Select::new("Select a wav file to play", options).prompt();
                             match ans {
-                                Ok(input) => play_audio(&input, &cli.device, false).unwrap(),
+                                Ok(input) => play_audio(&input, cli.device, false).unwrap(),
                                 Err(_) => println!("Playback cancelled."),
                             }
                         }

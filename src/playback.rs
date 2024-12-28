@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[allow(unused_variables)]
-pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
+pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()> {
     // Conditionally compile with jack if the feature is specified.
     #[cfg(all(
         any(
@@ -57,11 +57,16 @@ pub fn play_audio(file_path: &str, device: &str, jack: bool) -> Result<()> {
     ))]
     let host = cpal::default_host();
 
-    let device = if device == "default" {
+    let device = if device.is_none() {
         host.default_output_device()
     } else {
-        host.output_devices()?
-            .find(|x| x.name().map(|y| y == device).unwrap_or(false))
+        // Try to parse the device string as an index first
+        if let Some(index) = device {
+            host.output_devices()?
+                .nth(index as usize)
+        } else {
+            panic!("failed to find output device");
+        }
     }
     .expect("failed to find output device");
 
