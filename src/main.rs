@@ -2,7 +2,7 @@ use clap::Parser;
 use colored::*;
 
 mod record;
-use cpal::traits::{HostTrait, DeviceTrait};
+use cpal::traits::{DeviceTrait, HostTrait};
 use inquire::{InquireError, Select, Text};
 use record::record_audio;
 
@@ -181,26 +181,31 @@ fn main() {
 
             println!("\n{}", "Available Audio Devices".bold().underline());
             println!("\n{}", "Usage:".yellow());
-            println!("  Recording: {} {}", "asak rec --device".bright_black(), "<index>".cyan());
-            println!("  Playback: {} {}", "asak play --device".bright_black(), "<index>".cyan());
-            
+            println!(
+                "  Recording: {} {}",
+                "asak rec --device".bright_black(),
+                "<index>".cyan()
+            );
+            println!(
+                "  Playback: {} {}",
+                "asak play --device".bright_black(),
+                "<index>".cyan()
+            );
+
             println!("\n{}", "=== Input Devices ===".green().bold());
             for (index, device) in in_devices.enumerate() {
-                println!("#{}: {}", 
-                    index.to_string().cyan(),
-                    device.name().unwrap()
-                );
+                println!("#{}: {}", index.to_string().cyan(), device.name().unwrap());
             }
 
             println!("\n{}", "=== Output Devices ===".blue().bold());
             for (index, device) in out_devices.enumerate() {
-                println!("#{}: {}", 
-                    index.to_string().cyan(),
-                    device.name().unwrap()
-                );
+                println!("#{}: {}", index.to_string().cyan(), device.name().unwrap());
             }
 
-            println!("\n{}", "Note: If no device is specified, the system default will be used.".italic());
+            println!(
+                "\n{}",
+                "Note: If no device is specified, the system default will be used.".italic()
+            );
             println!();
         }
     }

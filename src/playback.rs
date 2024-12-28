@@ -62,8 +62,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
     } else {
         // Try to parse the device string as an index first
         if let Some(index) = device {
-            host.output_devices()?
-                .nth(index as usize)
+            host.output_devices()?.nth(index as usize)
         } else {
             panic!("failed to find output device");
         }
