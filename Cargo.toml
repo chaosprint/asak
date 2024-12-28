@@ -1,6 +1,6 @@
 [package]
 name = "asak"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 keywords = ["audio", "music", "DSP", "synth", "synthesizer"]
 readme = "README.md"
