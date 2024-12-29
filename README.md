@@ -14,6 +14,8 @@ A cross-platform audio recording/playback CLI tool with TUI, written in Rust. Th
 cargo install asak
 ```
 
+Note: Make sure the [JACK Audio Connection Kit](https://jackaudio.org) is installed on your machine prior to installing `asak`. For instance, on Ubuntu/Mint, if nothing is returned when running `sudo dpkg -l | grep libjack`, you will need to `sudo apt install libjack-dev`.
+
 ### step 2
 
 ```sh
