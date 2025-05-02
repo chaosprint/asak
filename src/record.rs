@@ -7,15 +7,14 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use hound::{WavSpec, WavWriter};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::Modifier;
-use ratatui::widgets::canvas::{Canvas, Circle, Line};
+use ratatui::widgets::canvas::{Canvas, Circle, Line, Rectangle};
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
     prelude::{CrosstermBackend, Terminal, Text},
     style::{Color, Style},
     text::Span,
-    widgets::Paragraph,
-    widgets::{Block, Borders},
+    widgets::{Block, Borders, Gauge, Paragraph},
 };
 use std::f64::consts::PI;
 use std::io::{stdout, Stdout};
@@ -30,6 +29,22 @@ fn calculate_rms(samples: &[f32]) -> f64 {
     mean.sqrt()
 }
 
+fn calculate_level(samples: &[f32]) -> Vec<(f32, f32)> {
+    let mut v = vec![];
+    for frame in samples.chunks(2) {
+        let square_sum: f32 = frame.iter().map(|&sample| (sample).powi(2)).sum();
+        let mean: f32 = square_sum / frame.len() as f32;
+        let rms = mean.sqrt();
+
+        let peak = frame
+            .iter()
+            .map(|&sample| sample.abs())
+            .max_by(|a, b| a.partial_cmp(b).unwrap());
+        v.push((rms, peak.unwrap_or(0.0)));
+    }
+    v
+}
+
 fn record_tui(ui_rx: Receiver<Vec<f32>>, is_recording: Arc<AtomicBool>) -> anyhow::Result<()> {
     let start_time = Instant::now();
     let refresh_interval = Duration::from_millis(100);
@@ -41,26 +56,27 @@ fn record_tui(ui_rx: Receiver<Vec<f32>>, is_recording: Arc<AtomicBool>) -> anyho
 
     let mut angle1 = 0.0;
     let mut angle2 = 0.0;
+    let mut last_audio_data = Vec::new();
 
     loop {
         let now = Instant::now();
         let duration = now.duration_since(start_time);
-        let recording_time = format!("Recording Time: {:.2}s", duration.as_secs_f32());
+        let secs = duration.as_secs_f32();
 
         // Update angles for rotation
         angle1 = (angle1 + 0.1) % (2.0 * PI);
         angle2 = (angle2 + 0.15) % (2.0 * PI);
 
-        // Always consume data from channel to avoid backlog
-        while let Ok(_) = ui_rx.try_recv() {
-            // Just consume the data, we don't need it for visualization
+        // Process audio data for visualization
+        while let Ok(data) = ui_rx.try_recv() {
+            last_audio_data = data;
         }
 
-        draw_rotating_discs(&mut terminal, recording_time, angle1, angle2)?;
+        draw_rotating_discs(&mut terminal, secs, angle1, angle2, &last_audio_data)?;
 
         if event::poll(refresh_interval)? {
             if let event::Event::Key(event) = event::read()? {
-                if event.code == KeyCode::Enter {
+                if event.code == KeyCode::Esc {
                     is_recording.store(false, Ordering::SeqCst);
                     break;
                 }
@@ -75,9 +91,10 @@ fn record_tui(ui_rx: Receiver<Vec<f32>>, is_recording: Arc<AtomicBool>) -> anyho
 
 fn draw_rotating_discs(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    recording_time: String,
+    secs: f32,
     angle1: f64,
     angle2: f64,
+    audio_data: &[f32],
 ) -> anyhow::Result<()> {
     terminal.draw(|f| {
         let size = f.size();
@@ -86,28 +103,33 @@ fn draw_rotating_discs(
             .direction(Direction::Vertical)
             .constraints(
                 [
-                    Constraint::Percentage(10),
-                    Constraint::Percentage(80),
-                    Constraint::Min(4),
+                    Constraint::Length(1),
+                    Constraint::Min(10),
+                    Constraint::Length(3),
+                    Constraint::Length(3),
                 ]
                 .as_ref(),
             )
             .split(size);
 
-        let block = Block::default().title("Recording").borders(Borders::NONE);
-        let time_paragraph = Paragraph::new(Text::raw(&recording_time))
-            .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD));
-        f.render_widget(block, chunks[0]);
-        f.render_widget(time_paragraph, chunks[0]);
+        // Top row with help text and time
+        let top_row = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
+            .split(chunks[0]);
 
-        let label = Span::styled(
-            "press ENTER to exit tui and finish recording...",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::ITALIC | Modifier::BOLD),
-        );
+        // Help text on the left (yellow)
+        let help_text = Paragraph::new("Press ESC to stop and quit recorder")
+            .style(Style::default().fg(Color::Yellow))
+            .alignment(Alignment::Left);
+        f.render_widget(help_text, top_row[0]);
 
-        f.render_widget(Paragraph::new(label), chunks[2]);
+        // Time on the right (red)
+        let time_text = format!("{:.1}", secs);
+        let time_display = Paragraph::new(time_text)
+            .style(Style::default().fg(Color::Red))
+            .alignment(Alignment::Right);
+        f.render_widget(time_display, top_row[1]);
 
         // Create canvas with two record discs
         let canvas = Canvas::default()
@@ -211,6 +233,71 @@ fn draw_rotating_discs(
             });
 
         f.render_widget(canvas, chunks[1]);
+
+        // Add level meters
+        let levels = calculate_level(audio_data);
+
+        if !levels.is_empty() {
+            // Ensure we have at least 2 channels (stereo)
+            let left = if levels.len() > 0 { levels[0].0 } else { 0.0 };
+            let right = if levels.len() > 1 { levels[1].0 } else { 0.0 };
+
+            let db_left = if left > 0.0 {
+                (20.0 * left.log10()) as i32
+            } else {
+                -90
+            };
+            let db_right = if right > 0.0 {
+                (20.0 * right.log10()) as i32
+            } else {
+                -90
+            };
+
+            // Determine color based on level (red for clipping)
+            let left_color = if left > 0.9 { Color::Red } else { Color::Green };
+            let right_color = if right > 0.9 {
+                Color::Red
+            } else {
+                Color::Green
+            };
+
+            let left_gauge = Gauge::default()
+                .block(Block::new().title("Left dB").borders(Borders::ALL))
+                .gauge_style(Style::default().fg(left_color))
+                .label(Span::styled(
+                    format!(
+                        "{} dB",
+                        match db_left {
+                            x if x < -90 => "-inf".to_string(),
+                            x => x.to_string(),
+                        }
+                    ),
+                    Style::default()
+                        .add_modifier(Modifier::ITALIC | Modifier::BOLD)
+                        .fg(Color::White),
+                ))
+                .ratio(left as f64);
+
+            let right_gauge = Gauge::default()
+                .block(Block::new().title("Right dB").borders(Borders::ALL))
+                .gauge_style(Style::default().fg(right_color))
+                .label(Span::styled(
+                    format!(
+                        "{} dB",
+                        match db_right {
+                            x if x < -90 => "-inf".to_string(),
+                            x => x.to_string(),
+                        }
+                    ),
+                    Style::default()
+                        .add_modifier(Modifier::ITALIC | Modifier::BOLD)
+                        .fg(Color::White),
+                ))
+                .ratio(right as f64);
+
+            f.render_widget(left_gauge, chunks[2]);
+            f.render_widget(right_gauge, chunks[3]);
+        }
     })?;
     Ok(())
 }
