@@ -8,8 +8,7 @@ use crossterm::terminal::{
 };
 use hound::{WavSpec, WavWriter};
 use ratatui::style::Modifier;
-use ratatui::symbols;
-use ratatui::widgets::{Axis, Chart, Dataset, GraphType};
+use ratatui::widgets::canvas::{Canvas, Circle, Line};
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     prelude::{CrosstermBackend, Terminal, Text},
@@ -18,6 +17,7 @@ use ratatui::{
     widgets::Paragraph,
     widgets::{Block, Borders},
 };
+use std::f64::consts::PI;
 use std::io::{stdout, Stdout};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -39,18 +39,24 @@ fn record_tui(ui_rx: Receiver<Vec<f32>>, is_recording: Arc<AtomicBool>) -> anyho
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     terminal.clear()?;
 
-    let mut shared_waveform_data = Vec::new();
+    let mut angle1 = 0.0;
+    let mut angle2 = 0.0;
 
     loop {
         let now = Instant::now();
         let duration = now.duration_since(start_time);
         let recording_time = format!("Recording Time: {:.2}s", duration.as_secs_f32());
 
-        while let Ok(data) = ui_rx.try_recv() {
-            shared_waveform_data.extend(data);
+        // Update angles for rotation
+        angle1 = (angle1 + 0.1) % (2.0 * PI);
+        angle2 = (angle2 + 0.15) % (2.0 * PI);
+
+        // Always consume data from channel to avoid backlog
+        while let Ok(_) = ui_rx.try_recv() {
+            // Just consume the data, we don't need it for visualization
         }
 
-        draw_rec_waveform(&mut terminal, &shared_waveform_data, recording_time)?;
+        draw_rotating_discs(&mut terminal, recording_time, angle1, angle2)?;
 
         if event::poll(refresh_interval)? {
             if let event::Event::Key(event) = event::read()? {
@@ -67,26 +73,14 @@ fn record_tui(ui_rx: Receiver<Vec<f32>>, is_recording: Arc<AtomicBool>) -> anyho
     Ok(())
 }
 
-fn draw_rec_waveform(
+fn draw_rotating_discs(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    waveform_data: &[f32],
     recording_time: String,
+    angle1: f64,
+    angle2: f64,
 ) -> anyhow::Result<()> {
     terminal.draw(|f| {
         let size = f.size();
-        let width = size.width as usize;
-        let samples_to_use = std::cmp::min(width * 128, waveform_data.len());
-        let recent_samples = &waveform_data[waveform_data.len() - samples_to_use..];
-
-        let data_vec: Vec<(f64, f64)> = recent_samples
-            .chunks(128)
-            .enumerate()
-            .map(|(x, samples)| {
-                let rms = calculate_rms(samples);
-                let x = x as f64;
-                (x, rms)
-            })
-            .collect();
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -115,24 +109,108 @@ fn draw_rec_waveform(
 
         f.render_widget(Paragraph::new(label), chunks[2]);
 
-        let datasets = vec![Dataset::default()
-            .marker(symbols::Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(Color::Red))
-            .data(&data_vec)];
-
-        let chart = Chart::new(datasets)
-            .x_axis(
-                Axis::default()
-                    .style(Style::default().fg(Color::Gray))
-                    .bounds([0., width as f64]),
+        // Create canvas with two record discs
+        let canvas = Canvas::default()
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("asak recorder"),
             )
-            .y_axis(
-                Axis::default()
-                    .style(Style::default().fg(Color::Gray))
-                    .bounds([0., 1.]),
-            );
-        f.render_widget(chart, chunks[1]);
+            .x_bounds([-50.0, 50.0])
+            .y_bounds([-25.0, 25.0])
+            .paint(move |ctx| {
+                // Left disc
+                let center1_x = -20.0;
+                let center1_y = 0.0;
+                let radius1 = 15.0;
+
+                // Right disc
+                let center2_x = 20.0;
+                let center2_y = 0.0;
+                let radius2 = 15.0;
+
+                // Draw the disc outlines
+                ctx.draw(&Circle {
+                    x: center1_x,
+                    y: center1_y,
+                    radius: radius1,
+                    color: Color::White,
+                });
+
+                ctx.draw(&Circle {
+                    x: center2_x,
+                    y: center2_y,
+                    radius: radius2,
+                    color: Color::White,
+                });
+
+                // Draw inner circles
+                ctx.draw(&Circle {
+                    x: center1_x,
+                    y: center1_y,
+                    radius: radius1 * 0.2,
+                    color: Color::White,
+                });
+
+                ctx.draw(&Circle {
+                    x: center2_x,
+                    y: center2_y,
+                    radius: radius2 * 0.2,
+                    color: Color::White,
+                });
+
+                // Draw rotating lines for left disc
+                for i in 0..4 {
+                    let line_angle = angle1 + (i as f64 * PI / 2.0);
+                    let end_x = center1_x + radius1 * line_angle.cos();
+                    let end_y = center1_y + radius1 * line_angle.sin();
+
+                    ctx.draw(&Line {
+                        x1: center1_x,
+                        y1: center1_y,
+                        x2: end_x,
+                        y2: end_y,
+                        color: Color::White,
+                    });
+                }
+
+                // Draw rotating lines for right disc
+                for i in 0..4 {
+                    let line_angle = angle2 + (i as f64 * PI / 2.0);
+                    let end_x = center2_x + radius2 * line_angle.cos();
+                    let end_y = center2_y + radius2 * line_angle.sin();
+
+                    ctx.draw(&Line {
+                        x1: center2_x,
+                        y1: center2_y,
+                        x2: end_x,
+                        y2: end_y,
+                        color: Color::White,
+                    });
+                }
+
+                // Draw grooves on the discs
+                for r in 1..5 {
+                    let groove_radius1 = radius1 * (0.3 + r as f64 * 0.15);
+                    let groove_radius2 = radius2 * (0.3 + r as f64 * 0.15);
+
+                    ctx.draw(&Circle {
+                        x: center1_x,
+                        y: center1_y,
+                        radius: groove_radius1,
+                        color: Color::Gray,
+                    });
+
+                    ctx.draw(&Circle {
+                        x: center2_x,
+                        y: center2_y,
+                        radius: groove_radius2,
+                        color: Color::Gray,
+                    });
+                }
+            });
+
+        f.render_widget(canvas, chunks[1]);
     })?;
     Ok(())
 }
