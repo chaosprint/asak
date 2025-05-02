@@ -9,9 +9,9 @@ use crossterm::terminal::{
 use hound::{WavSpec, WavWriter};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::Modifier;
-use ratatui::widgets::canvas::{Canvas, Circle, Line, Rectangle};
+use ratatui::widgets::canvas::{Canvas, Circle, Line};
 use ratatui::{
-    prelude::{CrosstermBackend, Terminal, Text},
+    prelude::{CrosstermBackend, Terminal},
     style::{Color, Style},
     text::Span,
     widgets::{Block, Borders, Gauge, Paragraph},
@@ -22,12 +22,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
-
-fn calculate_rms(samples: &[f32]) -> f64 {
-    let square_sum: f64 = samples.iter().map(|&sample| (sample as f64).powi(2)).sum();
-    let mean = square_sum / samples.len() as f64;
-    mean.sqrt()
-}
 
 fn calculate_level(samples: &[f32]) -> Vec<(f32, f32)> {
     let mut v = vec![];
@@ -96,10 +90,34 @@ fn draw_rotating_discs(
     angle2: f64,
     audio_data: &[f32],
 ) -> anyhow::Result<()> {
-    terminal.draw(|f| {
-        let size = f.size();
+    // Check for zero area before drawing
+    let size = terminal.size()?;
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Length(1),
+                Constraint::Min(10),
+                Constraint::Length(3),
+                Constraint::Length(3),
+            ]
+            .as_ref(),
+        )
+        .split(size);
 
-        let chunks = Layout::default()
+    let canvas_rect = chunks[1];
+    if canvas_rect.width == 0 || canvas_rect.height == 0 {
+        // If the canvas area is zero, we can skip the terminal.draw call
+        // or handle it gracefully, maybe just drawing the top/bottom parts
+        // For now, let's just skip the entire draw operation for this frame
+        return Ok(());
+    }
+
+    terminal.draw(|f| {
+        // Recalculate chunks inside the closure as `f.size()` might differ slightly?
+        // Or just use the previously calculated chunks. Let's reuse chunks.
+        let size = f.size(); // Get size specific to this frame draw context
+        let chunks = Layout::default() // Re-split based on frame size
             .direction(Direction::Vertical)
             .constraints(
                 [
@@ -131,38 +149,56 @@ fn draw_rotating_discs(
             .alignment(Alignment::Right);
         f.render_widget(time_display, top_row[1]);
 
-        // Create canvas with two record discs
+        // --- Aspect Ratio Correction --- START
+        let canvas_rect = chunks[1]; // Use chunks calculated inside closure
+                                     // No need to check for zero size again, handled outside
+
+        let canvas_width_chars = canvas_rect.width as f64;
+        let canvas_height_chars = canvas_rect.height as f64;
+        let char_aspect_ratio = 2.0; // Assume terminal char height is approx 2x width
+
+        // Calculate the aspect ratio needed for the world coordinates to make circles appear round
+        let canvas_aspect_ratio = canvas_height_chars / canvas_width_chars;
+        let world_aspect_ratio = char_aspect_ratio * canvas_aspect_ratio;
+
+        // Define the fixed horizontal range for world coordinates
+        let x_world_range = 100.0;
+        let x_bounds = [-x_world_range / 2.0, x_world_range / 2.0]; // [-50.0, 50.0]
+
+        // Calculate the corresponding vertical range based on the desired world aspect ratio
+        let y_world_range = x_world_range * world_aspect_ratio;
+        let y_bounds = [-y_world_range / 2.0, y_world_range / 2.0];
+        // --- Aspect Ratio Correction --- END
+
+        // Define the circle parameters in world coordinates (using a fixed radius)
+        let circle_radius = 15.0;
+        let center1_x = -20.0;
+        let center1_y = 0.0;
+        let center2_x = 20.0;
+        let center2_y = 0.0;
+
+        // Create canvas with dynamically adjusted bounds
         let canvas = Canvas::default()
             .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("asak recorder"),
+                Block::default().borders(Borders::ALL), // .title("asak recorder"),
             )
-            .x_bounds([-50.0, 50.0])
-            .y_bounds([-25.0, 25.0])
+            .x_bounds(x_bounds) // Use fixed x_bounds
+            .y_bounds(y_bounds) // Use dynamically calculated y_bounds for aspect ratio correction
             .paint(move |ctx| {
-                // Left disc
-                let center1_x = -20.0;
-                let center1_y = 0.0;
-                let radius1 = 15.0;
-
-                // Right disc
-                let center2_x = 20.0;
-                let center2_y = 0.0;
-                let radius2 = 15.0;
+                // Draw shapes using world coordinates; aspect ratio is handled by bounds
 
                 // Draw the disc outlines
                 ctx.draw(&Circle {
                     x: center1_x,
                     y: center1_y,
-                    radius: radius1,
+                    radius: circle_radius,
                     color: Color::White,
                 });
 
                 ctx.draw(&Circle {
                     x: center2_x,
                     y: center2_y,
-                    radius: radius2,
+                    radius: circle_radius,
                     color: Color::White,
                 });
 
@@ -170,22 +206,22 @@ fn draw_rotating_discs(
                 ctx.draw(&Circle {
                     x: center1_x,
                     y: center1_y,
-                    radius: radius1 * 0.2,
+                    radius: circle_radius * 0.2,
                     color: Color::White,
                 });
 
                 ctx.draw(&Circle {
                     x: center2_x,
                     y: center2_y,
-                    radius: radius2 * 0.2,
+                    radius: circle_radius * 0.2,
                     color: Color::White,
                 });
 
-                // Draw rotating lines for left disc
+                // Draw rotating lines (use world radius directly)
                 for i in 0..4 {
                     let line_angle = angle1 + (i as f64 * PI / 2.0);
-                    let end_x = center1_x + radius1 * line_angle.cos();
-                    let end_y = center1_y + radius1 * line_angle.sin();
+                    let end_x = center1_x + circle_radius * line_angle.cos();
+                    let end_y = center1_y + circle_radius * line_angle.sin();
 
                     ctx.draw(&Line {
                         x1: center1_x,
@@ -199,8 +235,8 @@ fn draw_rotating_discs(
                 // Draw rotating lines for right disc
                 for i in 0..4 {
                     let line_angle = angle2 + (i as f64 * PI / 2.0);
-                    let end_x = center2_x + radius2 * line_angle.cos();
-                    let end_y = center2_y + radius2 * line_angle.sin();
+                    let end_x = center2_x + circle_radius * line_angle.cos();
+                    let end_y = center2_y + circle_radius * line_angle.sin();
 
                     ctx.draw(&Line {
                         x1: center2_x,
@@ -211,10 +247,10 @@ fn draw_rotating_discs(
                     });
                 }
 
-                // Draw grooves on the discs
+                // Draw grooves (use world radius)
                 for r in 1..5 {
-                    let groove_radius1 = radius1 * (0.3 + r as f64 * 0.15);
-                    let groove_radius2 = radius2 * (0.3 + r as f64 * 0.15);
+                    let groove_radius1 = circle_radius * (0.3 + r as f64 * 0.15);
+                    let groove_radius2 = circle_radius * (0.3 + r as f64 * 0.15);
 
                     ctx.draw(&Circle {
                         x: center1_x,
