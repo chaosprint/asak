@@ -21,7 +21,7 @@ use dasp_interpolate::linear::Linear;
 use dasp_signal::Signal;
 use std::f64::consts::PI;
 use std::io::stdout;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -156,9 +156,11 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
 
     let sample_format = config.sample_format();
     let pointer = Arc::new(AtomicUsize::new(0));
+    let is_paused = Arc::new(AtomicBool::new(false));
 
     let err_fn = |err| eprintln!("an error occurred on the output stream: {}", err);
 
+    let is_paused_clone = is_paused.clone();
     let stream = match sample_format {
         cpal::SampleFormat::F32 => device.build_output_stream(
             &config.into(),
@@ -173,8 +175,10 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
                         }
                     }
 
-                    let next = if p + 1 < length - 1 { p + 1 } else { 0 };
-                    pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                    if !is_paused_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        let next = if p + 1 < length { p + 1 } else { 0 }; // Loop at the end
+                        pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                    }
                 }
             },
             err_fn,
@@ -193,8 +197,10 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
                         }
                     }
 
-                    let next = if p + 1 < length - 1 { p + 1 } else { 0 };
-                    pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                    if !is_paused_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        let next = if p + 1 < length { p + 1 } else { 0 }; // Loop at the end
+                        pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                    }
                 }
             },
             err_fn,
@@ -214,8 +220,10 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
                         }
                     }
 
-                    let next = if p + 1 < length - 1 { p + 1 } else { 0 };
-                    pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                    if !is_paused_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        let next = if p + 1 < length { p + 1 } else { 0 }; // Loop at the end
+                        pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                    }
                 }
             },
             err_fn,
@@ -235,8 +243,10 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
                         }
                     }
 
-                    let next = if p + 1 < length - 1 { p + 1 } else { 0 };
-                    pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                    if !is_paused_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        let next = if p + 1 < length { p + 1 } else { 0 }; // Loop at the end
+                        pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                    }
                 }
             },
             err_fn,
@@ -256,8 +266,10 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
                         }
                     }
 
-                    let next = if p + 1 < length - 1 { p + 1 } else { 0 };
-                    pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                    if !is_paused_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        let next = if p + 1 < length { p + 1 } else { 0 }; // Loop at the end
+                        pointer.store(next, std::sync::atomic::Ordering::Relaxed);
+                    }
                 }
             },
             err_fn,
@@ -280,25 +292,46 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
     let mut angle1 = 0.0;
     let mut angle2 = 0.0;
 
+    // For tracking playback time
+    let mut elapsed = 0.0;
+    let mut last_update = Instant::now();
+
     loop {
         if event::poll(Duration::from_millis(100))? {
             if let event::Event::Key(event) = event::read()? {
-                if event.code == KeyCode::Enter {
-                    break;
+                match event.code {
+                    KeyCode::Esc => {
+                        break;
+                    }
+                    KeyCode::Char(' ') => {
+                        let current_pause_state =
+                            is_paused.load(std::sync::atomic::Ordering::Relaxed);
+                        is_paused.store(!current_pause_state, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    _ => {}
                 }
             }
         }
 
-        let elapsed = start_time.elapsed().as_secs_f32();
-        if elapsed >= file_duration {
-            break; // Stop when the file duration is reached
+        // Update elapsed time only when not paused
+        if !is_paused.load(std::sync::atomic::Ordering::Relaxed) {
+            let now = Instant::now();
+            elapsed += now.duration_since(last_update).as_secs_f32();
+            last_update = now;
+
+            // Update angles for rotation only when not paused
+            angle1 = (angle1 + 0.1) % (2.0 * PI);
+            angle2 = (angle2 + 0.15) % (2.0 * PI);
+        } else {
+            // Still update last_update to avoid jumps when unpausing
+            last_update = Instant::now();
         }
 
-        let progress = elapsed / file_duration;
+        // Calculate progress based on actual playback progress
+        let progress = (elapsed % file_duration) / file_duration;
 
-        // Update angles for rotation
-        angle1 = (angle1 + 0.1) % (2.0 * PI);
-        angle2 = (angle2 + 0.15) % (2.0 * PI);
+        // With looping, we'll display the current position within the loop
+        let display_time = elapsed % file_duration;
 
         terminal.draw(|f| {
             let size = f.area();
@@ -325,12 +358,17 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
                 )
                 .split(size);
 
-            let gauge = Gauge::default()
-                .block(
-                    Block::default()
-                        .title(format!("PLAYBACK  {:.2}s/{:.2}s", elapsed, file_duration))
-                        .borders(Borders::ALL),
+            let title_text = if is_paused.load(std::sync::atomic::Ordering::Relaxed) {
+                format!(
+                    "PLAYBACK (PAUSED) {:.2}s/{:.2}s",
+                    display_time, file_duration
                 )
+            } else {
+                format!("PLAYBACK {:.2}s/{:.2}s", display_time, file_duration)
+            };
+
+            let gauge = Gauge::default()
+                .block(Block::default().title(title_text).borders(Borders::ALL))
                 .gauge_style(Style::default().fg(Color::Blue).bg(Color::Black))
                 .percent((progress * 100.0) as u16);
 
@@ -472,7 +510,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
             f.render_widget(canvas, chunks[2]);
 
             let label = Span::styled(
-                "press ENTER to exit tui and stop playback.",
+                "[SPACE] -> PAUSE/RESUME | [ESC] -> QUIT",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::ITALIC | Modifier::BOLD),
