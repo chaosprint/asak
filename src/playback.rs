@@ -9,6 +9,7 @@ use hound::WavReader;
 use ratatui::style::Modifier;
 use ratatui::symbols;
 use ratatui::text::Span;
+use ratatui::widgets::canvas::{Canvas, Circle, Line};
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, Gauge, GraphType, Paragraph};
 use ratatui::{
     layout::{Constraint, Direction, Layout},
@@ -18,6 +19,7 @@ use ratatui::{
 
 use dasp_interpolate::linear::Linear;
 use dasp_signal::Signal;
+use std::f64::consts::PI;
 use std::io::stdout;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
@@ -274,6 +276,10 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
     let start_time = Instant::now();
     let file_duration = WavReader::open(file_path)?.duration() as f32 / spec.sample_rate as f32;
 
+    // Initialize angles for canvas animation
+    let mut angle1 = 0.0;
+    let mut angle2 = 0.0;
+
     loop {
         if event::poll(Duration::from_millis(100))? {
             if let event::Event::Key(event) = event::read()? {
@@ -289,6 +295,10 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         }
 
         let progress = elapsed / file_duration;
+
+        // Update angles for rotation
+        angle1 = (angle1 + 0.1) % (2.0 * PI);
+        angle2 = (angle2 + 0.15) % (2.0 * PI);
 
         terminal.draw(|f| {
             let size = f.area();
@@ -306,23 +316,26 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
                 .direction(Direction::Vertical)
                 .constraints(
                     [
-                        Constraint::Percentage(10),
-                        Constraint::Percentage(80),
-                        Constraint::Min(4),
+                        Constraint::Length(3),      // Progress bar
+                        Constraint::Length(8),      // Waveform (reduced height)
+                        Constraint::Percentage(70), // Canvas animation
+                        Constraint::Min(3),         // Help text
                     ]
                     .as_ref(),
                 )
                 .split(size);
+
             let gauge = Gauge::default()
                 .block(
                     Block::default()
                         .title(format!("PLAYBACK  {:.2}s/{:.2}s", elapsed, file_duration))
-                        .borders(Borders::NONE),
+                        .borders(Borders::ALL),
                 )
                 .gauge_style(Style::default().fg(Color::Blue).bg(Color::Black))
                 .percent((progress * 100.0) as u16);
-            // f.render_widget(gauge, size);
+
             f.render_widget(gauge, chunks[0]);
+
             let datasets = vec![Dataset::default()
                 .marker(symbols::Marker::Braille)
                 .graph_type(GraphType::Line)
@@ -332,18 +345,132 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
             let chart = Chart::new(datasets)
                 .x_axis(
                     Axis::default()
-                        // .title("X Axis")
                         .style(Style::default().fg(Color::Gray))
-                        // .labels(x_labels)
                         .bounds([0., width as f64]),
                 )
                 .y_axis(
                     Axis::default()
-                        // .title("RMS")
                         .style(Style::default().fg(Color::Gray))
                         .bounds([-1.0, 1.]),
-                );
+                )
+                .block(Block::default().borders(Borders::ALL).title("Waveform"));
+
             f.render_widget(chart, chunks[1]);
+
+            // Canvas animation (rotating discs)
+            let canvas_rect = chunks[2];
+
+            // Aspect ratio correction
+            let canvas_width_chars = canvas_rect.width as f64;
+            let canvas_height_chars = canvas_rect.height as f64;
+            let char_aspect_ratio = 2.0; // Assume terminal char height is approx 2x width
+
+            // Calculate the aspect ratio needed for world coordinates to make circles appear round
+            let canvas_aspect_ratio = canvas_height_chars / canvas_width_chars;
+            let world_aspect_ratio = char_aspect_ratio * canvas_aspect_ratio;
+
+            // Define the fixed horizontal range for world coordinates
+            let x_world_range = 100.0;
+            let x_bounds = [-x_world_range / 2.0, x_world_range / 2.0]; // [-50.0, 50.0]
+
+            // Calculate the corresponding vertical range based on the desired world aspect ratio
+            let y_world_range = x_world_range * world_aspect_ratio;
+            let y_bounds = [-y_world_range / 2.0, y_world_range / 2.0];
+
+            // Define the circle parameters in world coordinates
+            let circle_radius = 15.0;
+            let center1_x = -20.0;
+            let center1_y = 0.0;
+            let center2_x = 20.0;
+            let center2_y = 0.0;
+
+            let canvas = Canvas::default()
+                .block(Block::default().borders(Borders::ALL).title("Playback"))
+                .x_bounds(x_bounds)
+                .y_bounds(y_bounds)
+                .paint(move |ctx| {
+                    // Draw the disc outlines
+                    ctx.draw(&Circle {
+                        x: center1_x,
+                        y: center1_y,
+                        radius: circle_radius,
+                        color: Color::White,
+                    });
+
+                    ctx.draw(&Circle {
+                        x: center2_x,
+                        y: center2_y,
+                        radius: circle_radius,
+                        color: Color::White,
+                    });
+
+                    // Draw inner circles
+                    ctx.draw(&Circle {
+                        x: center1_x,
+                        y: center1_y,
+                        radius: circle_radius * 0.2,
+                        color: Color::White,
+                    });
+
+                    ctx.draw(&Circle {
+                        x: center2_x,
+                        y: center2_y,
+                        radius: circle_radius * 0.2,
+                        color: Color::White,
+                    });
+
+                    // Draw rotating lines (left disc)
+                    for i in 0..4 {
+                        let line_angle = angle1 + (i as f64 * PI / 2.0);
+                        let end_x = center1_x + circle_radius * line_angle.cos();
+                        let end_y = center1_y + circle_radius * line_angle.sin();
+
+                        ctx.draw(&Line {
+                            x1: center1_x,
+                            y1: center1_y,
+                            x2: end_x,
+                            y2: end_y,
+                            color: Color::White,
+                        });
+                    }
+
+                    // Draw rotating lines (right disc)
+                    for i in 0..4 {
+                        let line_angle = angle2 + (i as f64 * PI / 2.0);
+                        let end_x = center2_x + circle_radius * line_angle.cos();
+                        let end_y = center2_y + circle_radius * line_angle.sin();
+
+                        ctx.draw(&Line {
+                            x1: center2_x,
+                            y1: center2_y,
+                            x2: end_x,
+                            y2: end_y,
+                            color: Color::White,
+                        });
+                    }
+
+                    // Draw grooves
+                    for r in 1..5 {
+                        let groove_radius = circle_radius * (0.3 + r as f64 * 0.15);
+
+                        ctx.draw(&Circle {
+                            x: center1_x,
+                            y: center1_y,
+                            radius: groove_radius,
+                            color: Color::Gray,
+                        });
+
+                        ctx.draw(&Circle {
+                            x: center2_x,
+                            y: center2_y,
+                            radius: groove_radius,
+                            color: Color::Gray,
+                        });
+                    }
+                });
+
+            f.render_widget(canvas, chunks[2]);
+
             let label = Span::styled(
                 "press ENTER to exit tui and stop playback.",
                 Style::default()
@@ -351,7 +478,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
                     .add_modifier(Modifier::ITALIC | Modifier::BOLD),
             );
 
-            f.render_widget(Paragraph::new(label), chunks[2]);
+            f.render_widget(Paragraph::new(label), chunks[3]);
         })?;
     }
 
