@@ -243,7 +243,7 @@ fn draw_rec_waveform(
                 .as_ref(),
             );
 
-        let [title, indicator, rect_left, rect_right, help] = vertical.areas(f.size());
+        let [title, indicator, rect_left, rect_right, help] = vertical.areas(f.area());
 
         let devices = Paragraph::new(Text::raw(format!(
             "INPUT: {};\t  OUTPUT: {};",
@@ -284,7 +284,7 @@ fn draw_rec_waveform(
 
         let line_gauge_test = LineGauge::default()
             // .block(Block::bordered().title("Progress"))
-            .gauge_style(
+            .filled_style(
                 Style::default()
                     .fg(Color::Green)
                     .bg(Color::Red)
@@ -295,43 +295,6 @@ fn draw_rec_waveform(
             .ratio(0.9);
 
         f.render_widget(line_gauge_test, indicator);
-
-        // let peak_db_left =  (20. * level[1].0.log10()) as i32;
-        // let peak_db_right = (20. * level[1].0.log10()) as i32;
-
-        // // render peak left as gauge
-        // let g = Gauge::default()
-        //     .block(Block::new().title("Left Peak").borders(Borders::ALL))
-        //     .gauge_style(color)
-        //     .label(Span::styled(
-        //         format!(
-        //             "{} db",
-        //             match peak_db_left {
-        //                 x if x < -90 => "-inf".to_string(),
-        //                 x => x.to_string(),
-        //             }
-        //         ),
-        //         Style::new().italic().bold().fg(Color::White),
-        //     ))
-        //     .ratio(level[0].1 as f64 * 0.9);
-        // f.render_widget(g, rect_peak_left);
-
-        // // render peak right as gauge
-        // let g = Gauge::default()
-        //     .block(Block::new().title("Right Peak").borders(Borders::ALL))
-        //     .gauge_style(color)
-        //     .label(Span::styled(
-        //         format!(
-        //             "{} db",
-        //             match peak_db_right {
-        //                 x if x < -90 => "-inf".to_string(),
-        //                 x => x.to_string(),
-        //             }
-        //         ),
-        //         Style::new().italic().bold().fg(Color::White),
-        //     ))
-        //     .ratio(level[1].1 as f64 * 0.9);
-        // f.render_widget(g, rect_peak_right);
 
         let g = Gauge::default()
             .block(Block::new().title("Left dB SPL").borders(Borders::ALL))
@@ -364,26 +327,6 @@ fn draw_rec_waveform(
             ))
             .ratio(level[1].0 as f64);
         f.render_widget(g, rect_right);
-
-        // let peak_left = (level[0].1 * 90.) as u64;
-        // let [low, high] =
-        //     Layout::horizontal([Constraint::Percentage(90), Constraint::Percentage(10)])
-        //         .areas(indicator);
-
-        // // let red_line = Block::default()
-        // //     .borders(Borders::NONE)
-        // //     .style(Style::default().bg(Color::Red));
-
-        // // f.render_widget(red_line, clippy_indicator);
-
-        // let low_level_rect = Block::default()
-        //     .borders(Borders::NONE)
-        //     .style(Style::default().bg(Color::Green));
-        // f.render_widget(low_level_rect, low);
-        // let high_level_rect = Block::default()
-        //     .borders(Borders::NONE)
-        //     .style(Style::default().bg(Color::Red));
-        // f.render_widget(high_level_rect, high);
     })?;
     Ok(())
 }

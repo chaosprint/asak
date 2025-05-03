@@ -1,6 +1,6 @@
 [package]
 name = "asak"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 keywords = ["audio", "music", "DSP", "synth", "synthesizer"]
 readme = "README.md"
@@ -13,18 +13,18 @@ repository = "https://github.com/chaosprint/asak.git"
 anyhow = "1.0.80"
 chrono = "0.4.35"
 clap = { version = "4.5.1", features = ["derive"] }
-colored = "2.1.0"
+colored = "3.0.0"
 cpal = { version = "0.15.2", features = ["jack"], optional = true }
 crossbeam = "0.8.4"
-crossterm = "0.27.0"
+crossterm = "0.29.0"
 dasp_interpolate = { version = "0.11.0", features = ["linear"] }
 dasp_ring_buffer = "0.11.0"
 dasp_signal = "0.11.0"
 hound = "3.5.1"
 inquire = "0.7.4"
 parking_lot = "0.12.1"
-rand = "0.8.5"
-ratatui = "0.26.1"
+rand = "0.9.1"
+ratatui = "0.29.0"
 smallvec = "1.13.1"
 
 [build-dependencies]
