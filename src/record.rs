@@ -70,7 +70,7 @@ fn record_tui(ui_rx: Receiver<Vec<f32>>, is_recording: Arc<AtomicBool>) -> anyho
 
         if event::poll(refresh_interval)? {
             if let event::Event::Key(event) = event::read()? {
-                if event.code == KeyCode::Esc {
+                if event.code == KeyCode::Enter {
                     is_recording.store(false, Ordering::SeqCst);
                     break;
                 }
@@ -137,9 +137,13 @@ fn draw_rotating_discs(
             .split(chunks[0]);
 
         // Help text on the left (yellow)
-        let help_text = Paragraph::new("Press ESC to stop and quit recorder")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Left);
+        let help_text = Paragraph::new(Span::styled(
+            "press ENTER to stop and quit recorder",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::ITALIC | Modifier::BOLD),
+        ))
+        .alignment(Alignment::Left);
         f.render_widget(help_text, top_row[0]);
 
         // Time on the right (red)
