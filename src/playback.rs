@@ -291,7 +291,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         let progress = elapsed / file_duration;
 
         terminal.draw(|f| {
-            let size = f.size();
+            let size = f.area();
             let width = size.width as usize;
 
             // data vec is calculated here, pick width samples from the file data

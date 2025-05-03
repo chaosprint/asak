@@ -7,7 +7,7 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use hound::{WavSpec, WavWriter};
-use ratatui::layout::{Alignment, Constraint, Direction, Layout};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::Modifier;
 use ratatui::widgets::canvas::{Canvas, Circle, Line};
 use ratatui::{
@@ -103,7 +103,7 @@ fn draw_rotating_discs(
             ]
             .as_ref(),
         )
-        .split(size);
+        .split(Rect::new(0, 0, size.width, size.height));
 
     let canvas_rect = chunks[1];
     if canvas_rect.width == 0 || canvas_rect.height == 0 {
@@ -116,7 +116,7 @@ fn draw_rotating_discs(
     terminal.draw(|f| {
         // Recalculate chunks inside the closure as `f.size()` might differ slightly?
         // Or just use the previously calculated chunks. Let's reuse chunks.
-        let size = f.size(); // Get size specific to this frame draw context
+        let size = f.area(); // Get size specific to this frame draw context
         let chunks = Layout::default() // Re-split based on frame size
             .direction(Direction::Vertical)
             .constraints(
