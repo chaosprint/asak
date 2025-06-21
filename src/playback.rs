@@ -68,69 +68,12 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
     }
     .expect("failed to find output device");
 
-    let config = device.default_output_config().unwrap();
+    let config = device.default_output_config()?;
 
     let sys_chan = config.channels() as usize;
     let sys_sr = config.sample_rate().0 as f64;
-    let mut reader = WavReader::open(file_path).expect("failed to open wav file");
-    let spec = reader.spec();
-    let source_sr = spec.sample_rate as f64;
-
-    let num_channels = spec.channels as usize;
-    let bit = spec.bits_per_sample as usize;
-    let mut file_data: Vec<Vec<f32>> = vec![];
-
-    for _ in 0..num_channels {
-        file_data.push(Vec::new());
-    }
-
-    let mut sample_count = 0;
-
-    match spec.sample_format {
-        hound::SampleFormat::Int => match spec.bits_per_sample {
-            16 => {
-                for result in reader.samples::<i16>() {
-                    let sample = result? as f32 / i16::MAX as f32;
-                    let channel = sample_count % num_channels;
-                    file_data[channel].push(sample);
-                    sample_count += 1;
-                }
-            }
-
-            24 => {
-                for result in reader.samples::<i32>() {
-                    let sample = result?;
-                    let sample = if sample & (1 << 23) != 0 {
-                        (sample | !0xff_ffff) as f32
-                    } else {
-                        sample as f32
-                    };
-                    let sample = sample / (1 << 23) as f32;
-                    let channel = sample_count % num_channels;
-                    file_data[channel].push(sample);
-                    sample_count += 1;
-                }
-            }
-
-            32 => {
-                for result in reader.samples::<i32>() {
-                    let sample = result? as f32 / i32::MAX as f32;
-                    let channel = sample_count % num_channels;
-                    file_data[channel].push(sample);
-                    sample_count += 1;
-                }
-            }
-            _ => panic!("unsupported bit depth"),
-        },
-        hound::SampleFormat::Float => {
-            for result in reader.samples::<f32>() {
-                let sample = result?;
-                let channel = sample_count % num_channels;
-                file_data[channel].push(sample);
-                sample_count += 1;
-            }
-        }
-    }
+    
+    let (mut file_data, source_sr, num_channels) = get_file_data(file_path)?;
 
     // TODO: should be able to play any chan file in any chan system
     for i in num_channels..sys_chan {
@@ -165,7 +108,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         cpal::SampleFormat::F32 => device.build_output_stream(
             &config.into(),
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let channels = sys_chan as usize;
+                let channels = sys_chan;
                 for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -187,7 +130,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         cpal::SampleFormat::I16 => device.build_output_stream(
             &config.into(),
             move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                let channels = sys_chan as usize;
+                let channels = sys_chan;
                 for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -209,7 +152,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         cpal::SampleFormat::U16 => device.build_output_stream(
             &config.into(),
             move |data: &mut [u16], _: &cpal::OutputCallbackInfo| {
-                let channels = sys_chan as usize;
+                let channels = sys_chan;
                 for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -233,7 +176,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         cpal::SampleFormat::I32 => device.build_output_stream(
             &config.into(),
             move |data: &mut [i32], _: &cpal::OutputCallbackInfo| {
-                let channels = sys_chan as usize;
+                let channels = sys_chan;
                 for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -255,7 +198,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         cpal::SampleFormat::U32 => device.build_output_stream(
             &config.into(),
             move |data: &mut [u32], _: &cpal::OutputCallbackInfo| {
-                let channels = sys_chan as usize;
+                let channels = sys_chan;
                 for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -286,7 +229,13 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
     terminal.hide_cursor()?;
 
     let start_time = Instant::now();
-    let file_duration = WavReader::open(file_path)?.duration() as f32 / spec.sample_rate as f32;
+    // Calculate duration from number of samples and sample rate
+    let file_duration = if !file_data[0].is_empty() {
+        file_data[0].len() as f32 / source_sr as f32
+    } else {
+        // Fallback in case file is empty
+        WavReader::open(file_path)?.duration() as f32 / WavReader::open(file_path)?.spec().sample_rate as f32
+    };
 
     // Initialize angles for canvas animation
     let mut angle1 = 0.0;
@@ -523,4 +472,94 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
     disable_raw_mode()?;
     execute!(stdout(), LeaveAlternateScreen)?;
     Ok(())
+}
+
+/// Loads and decodes audio data from a WAV file into a format suitable for playback.
+///
+/// ### Arguments
+/// * `file_path` - Path to the WAV file to load
+///
+/// ### Returns
+/// A `Result` containing a tuple with:
+/// - `Vec<Vec<f32>>`: A vector where each inner vector contains the samples for one audio channel.
+///   Samples are normalized to the range [-1.0, 1.0] for integer formats.
+/// - `f64`: The sample rate of the audio file in Hz.
+/// - `usize`: The number of audio channels in the file.
+///
+/// ### Errors
+/// Returns an error if the file cannot be opened, read, or contains unsupported formats.
+///
+/// ### Supported Formats
+/// - Integer PCM: 16-bit, 24-bit, 32-bit (both signed and unsigned)
+/// - Floating-point: 32-bit
+///
+/// ### Panics
+/// - If the file contains an unsupported bit depth
+/// - If the file cannot be opened (will be converted to Result in the future)
+fn get_file_data(file_path: &str) -> Result<(Vec<Vec<f32>>, f64, usize)> {
+    // TODO: #23 adjust get_file_data so it uses symphonia instead of hound for multiple formats
+    // Open the WAV file and get its specification
+    let mut reader = WavReader::open(file_path).expect("failed to open wav file");
+    let spec = reader.spec();
+    let source_sr = spec.sample_rate as f64;
+    let num_channels = spec.channels as usize;
+
+    // Prepare vector for each channel's data
+    let mut file_data: Vec<Vec<f32>> = vec![];
+    for _ in 0..num_channels {
+        file_data.push(Vec::new());
+    }
+
+    // Count samples as we load them
+    let mut sample_count = 0;
+
+    // Load audio samples based on format and bit depth
+    match spec.sample_format {
+        hound::SampleFormat::Int => match spec.bits_per_sample {
+            16 => {
+                for result in reader.samples::<i16>() {
+                    let sample = result? as f32 / i16::MAX as f32;
+                    let channel = sample_count % num_channels;
+                    file_data[channel].push(sample);
+                    sample_count += 1;
+                }
+            }
+
+            24 => {
+                for result in reader.samples::<i32>() {
+                    let sample = result?;
+                    let sample = if sample & (1 << 23) != 0 {
+                        (sample | !0xff_ffff) as f32
+                    } else {
+                        sample as f32
+                    };
+                    let sample = sample / (1 << 23) as f32;
+                    let channel = sample_count % num_channels;
+                    file_data[channel].push(sample);
+                    sample_count += 1;
+                }
+            }
+
+            32 => {
+                for result in reader.samples::<i32>() {
+                    let sample = result? as f32 / i32::MAX as f32;
+                    let channel = sample_count % num_channels;
+                    file_data[channel].push(sample);
+                    sample_count += 1;
+                }
+            }
+            _ => panic!("unsupported bit depth"),
+        },
+        hound::SampleFormat::Float => {
+            for result in reader.samples::<f32>() {
+                let sample = result?;
+                let channel = sample_count % num_channels;
+                file_data[channel].push(sample);
+                sample_count += 1;
+            }
+        }
+    }
+
+    // Return the loaded audio data, the source sample rate, and number of channels
+    Ok((file_data, source_sr, num_channels))
 }
