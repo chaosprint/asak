@@ -26,6 +26,7 @@ parking_lot = "0.12.1"
 rand = "0.9.1"
 ratatui = "0.29.0"
 smallvec = "1.13.1"
+symphonia = { version = "0.5.4", features = ["all"] }
 
 [build-dependencies]
 clap = { version = "4.5.4", features = ["derive"] }
@@ -60,6 +61,9 @@ targets = [
 pr-run-mode = "plan"
 # Whether to install an updater program
 install-updater = false
+
+[dev-dependencies]
+rstest = "0.25.0"
 
 [package.metadata.dist.dependencies.apt]
 libasound2-dev = '*'
