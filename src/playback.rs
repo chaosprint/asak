@@ -5,14 +5,6 @@ use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use symphonia::core::audio::{AudioBufferRef, Signal};
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
-use symphonia::core::errors::Error as SymphoniaError;
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
-use symphonia::default::get_probe;
 use ratatui::style::Modifier;
 use ratatui::symbols;
 use ratatui::text::Span;
@@ -23,6 +15,14 @@ use ratatui::{
     prelude::{CrosstermBackend, Terminal},
     style::{Color, Style},
 };
+use symphonia::core::audio::{AudioBufferRef, Signal};
+use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use symphonia::default::get_probe;
 
 use dasp_interpolate::linear::Linear;
 use dasp_signal::Signal as DaspSignal;
@@ -114,8 +114,8 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         let a = DaspSignal::next(&mut source);
         let b = DaspSignal::next(&mut source);
         let interp = Linear::new(a, b);
-        let resampled_sig = DaspSignal::from_hz_to_hz(source, interp, source_sr, sys_sr)
-            .until_exhausted();
+        let resampled_sig =
+            DaspSignal::from_hz_to_hz(source, interp, source_sr, sys_sr).until_exhausted();
 
         resampled_data[i] = resampled_sig.collect();
     }
@@ -514,8 +514,13 @@ fn read_file_data(file_path: &str) -> Result<AudioData> {
 
     // Validate supported formats
     match extension.as_str() {
-        "wav" | "ogg" | "mp3" => {},
-        _ => return Err(anyhow::anyhow!("Unsupported format: {}. Only WAV, OGG, and MP3 are supported.", extension)),
+        "wav" | "ogg" | "mp3" => {}
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unsupported format: {}. Only WAV, OGG, and MP3 are supported.",
+                extension
+            ))
+        }
     }
 
     let file = File::open(file_path)?;
@@ -527,7 +532,8 @@ fn read_file_data(file_path: &str) -> Result<AudioData> {
     let meta_opts = MetadataOptions::default();
     let fmt_opts = FormatOptions::default();
 
-    let probe_result = get_probe().format(&hint, mss, &fmt_opts, &meta_opts)
+    let probe_result = get_probe()
+        .format(&hint, mss, &fmt_opts, &meta_opts)
         .map_err(|e| anyhow::anyhow!("Failed to probe format: {}", e))?;
     let mut format = probe_result.format;
 
@@ -538,16 +544,22 @@ fn read_file_data(file_path: &str) -> Result<AudioData> {
         .ok_or_else(|| anyhow::anyhow!("No audio track found in {}", file_path))?;
 
     let track_id = track.id;
-    let sample_rate = track.codec_params.sample_rate
+    let sample_rate = track
+        .codec_params
+        .sample_rate
         .ok_or_else(|| anyhow::anyhow!("Sample rate not found"))? as f64;
-    let channels = track.codec_params.channels
+    let channels = track
+        .codec_params
+        .channels
         .map(|c| c.count())
         .ok_or_else(|| anyhow::anyhow!("Channel count not found"))?;
 
     // Calculate duration from track parameters if available
     // Note: this duration calculation must come before the `format.next_packet()` loop to avoid
     // error[E0502]: cannot borrow `*format` as mutable because it is also borrowed as immutable
-    let duration_from_frame_count = track.codec_params.n_frames
+    let duration_from_frame_count = track
+        .codec_params
+        .n_frames
         .map(|frames| frames as f32 / sample_rate as f32);
 
     let dec_opts = DecoderOptions::default();
@@ -560,7 +572,9 @@ fn read_file_data(file_path: &str) -> Result<AudioData> {
     loop {
         let packet = match format.next_packet() {
             Ok(packet) => packet,
-            Err(SymphoniaError::IoError(ref e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+            Err(SymphoniaError::IoError(ref e))
+                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
                 break;
             }
             Err(e) => return Err(anyhow::anyhow!("Error reading packet: {}", e)),
@@ -570,7 +584,8 @@ fn read_file_data(file_path: &str) -> Result<AudioData> {
             continue;
         }
 
-        let audio_buf = decoder.decode(&packet)
+        let audio_buf = decoder
+            .decode(&packet)
             .map_err(|e| anyhow::anyhow!("Decode error: {}", e))?;
 
         // Convert to f32 samples based on the buffer type
@@ -582,64 +597,61 @@ fn read_file_data(file_path: &str) -> Result<AudioData> {
             }
             AudioBufferRef::F64(buf) => {
                 for ch in 0..buf.spec().channels.count().min(channels) {
-                    audio_samples[ch].extend(
-                        buf.chan(ch).iter().map(|&s| s as f32)
-                    );
+                    audio_samples[ch].extend(buf.chan(ch).iter().map(|&s| s as f32));
                 }
             }
             AudioBufferRef::S8(buf) => {
                 for ch in 0..buf.spec().channels.count().min(channels) {
-                    audio_samples[ch].extend(
-                        buf.chan(ch).iter().map(|&s| s as f32 / i8::MAX as f32)
-                    );
+                    audio_samples[ch]
+                        .extend(buf.chan(ch).iter().map(|&s| s as f32 / i8::MAX as f32));
                 }
             }
             AudioBufferRef::S16(buf) => {
                 for ch in 0..buf.spec().channels.count().min(channels) {
-                    audio_samples[ch].extend(
-                        buf.chan(ch).iter().map(|&s| s as f32 / i16::MAX as f32)
-                    );
+                    audio_samples[ch]
+                        .extend(buf.chan(ch).iter().map(|&s| s as f32 / i16::MAX as f32));
                 }
             }
             AudioBufferRef::S24(buf) => {
                 for ch in 0..buf.spec().channels.count().min(channels) {
                     audio_samples[ch].extend(
-                        buf.chan(ch).iter().map(|&s| s.inner() as f32 / 8388608.0) // 2^23
+                        buf.chan(ch).iter().map(|&s| s.inner() as f32 / 8388608.0), // 2^23
                     );
                 }
             }
             AudioBufferRef::S32(buf) => {
                 for ch in 0..buf.spec().channels.count().min(channels) {
-                    audio_samples[ch].extend(
-                        buf.chan(ch).iter().map(|&s| s as f32 / i32::MAX as f32)
-                    );
+                    audio_samples[ch]
+                        .extend(buf.chan(ch).iter().map(|&s| s as f32 / i32::MAX as f32));
                 }
             }
             AudioBufferRef::U8(buf) => {
                 for ch in 0..buf.spec().channels.count().min(channels) {
-                    audio_samples[ch].extend(
-                        buf.chan(ch).iter().map(|&s| (s as f32 - 128.0) / 128.0)
-                    );
+                    audio_samples[ch]
+                        .extend(buf.chan(ch).iter().map(|&s| (s as f32 - 128.0) / 128.0));
                 }
             }
             AudioBufferRef::U16(buf) => {
                 for ch in 0..buf.spec().channels.count().min(channels) {
-                    audio_samples[ch].extend(
-                        buf.chan(ch).iter().map(|&s| (s as f32 - 32768.0) / 32768.0)
-                    );
+                    audio_samples[ch]
+                        .extend(buf.chan(ch).iter().map(|&s| (s as f32 - 32768.0) / 32768.0));
                 }
             }
             AudioBufferRef::U24(buf) => {
                 for ch in 0..buf.spec().channels.count().min(channels) {
                     audio_samples[ch].extend(
-                        buf.chan(ch).iter().map(|&s| (s.inner() as f32 - 8388608.0) / 8388608.0)
+                        buf.chan(ch)
+                            .iter()
+                            .map(|&s| (s.inner() as f32 - 8388608.0) / 8388608.0),
                     );
                 }
             }
             AudioBufferRef::U32(buf) => {
                 for ch in 0..buf.spec().channels.count().min(channels) {
                     audio_samples[ch].extend(
-                        buf.chan(ch).iter().map(|&s| (s as f32 - 2147483648.0) / 2147483648.0)
+                        buf.chan(ch)
+                            .iter()
+                            .map(|&s| (s as f32 - 2147483648.0) / 2147483648.0),
                     );
                 }
             }
@@ -652,9 +664,8 @@ fn read_file_data(file_path: &str) -> Result<AudioData> {
     }
 
     // Use pre-calculated duration from track params, or fallback to sample count
-    let duration = duration_from_frame_count.unwrap_or_else(|| {
-        audio_samples[0].len() as f32 / sample_rate as f32
-    });
+    let duration = duration_from_frame_count
+        .unwrap_or_else(|| audio_samples[0].len() as f32 / sample_rate as f32);
 
     Ok(AudioData {
         samples: audio_samples,
@@ -671,30 +682,52 @@ mod tests {
     use std::path::PathBuf;
 
     #[rstest]
-    fn test_read_file_data(
-        #[files("tests/data/xkeril_melody.*")] path: PathBuf
-    ) {
+    fn test_read_file_data(#[files("tests/data/xkeril_melody.*")] path: PathBuf) {
         let result = read_file_data(&path.to_string_lossy());
-        assert!(result.is_ok(), "Failed to load test file {:?}: {:?}", path, result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to load test file {:?}: {:?}",
+            path,
+            result.err()
+        );
 
         let audio_data = result.unwrap();
 
-        assert!(!audio_data.samples.is_empty(), "File data should not be empty");
-        assert_eq!(audio_data.samples.len(), audio_data.channels, "Number of channels should match data structure");
-        assert!(audio_data.sample_rate > 0.0, "Sample rate should be positive");
+        assert!(
+            !audio_data.samples.is_empty(),
+            "File data should not be empty"
+        );
+        assert_eq!(
+            audio_data.samples.len(),
+            audio_data.channels,
+            "Number of channels should match data structure"
+        );
+        assert!(
+            audio_data.sample_rate > 0.0,
+            "Sample rate should be positive"
+        );
         assert!(audio_data.channels > 0, "Should have at least one channel");
 
         for channel_data in &audio_data.samples {
-            assert!(!channel_data.is_empty(), "Each channel should have sample data");
+            assert!(
+                !channel_data.is_empty(),
+                "Each channel should have sample data"
+            );
 
             for &sample in channel_data {
-                assert!(sample >= -1.0 && sample <= 1.0, "Samples should be normalized between -1.0 and 1.0");
+                assert!(
+                    sample >= -1.0 && sample <= 1.0,
+                    "Samples should be normalized between -1.0 and 1.0"
+                );
             }
         }
 
         // Assert duration is roughly 10 seconds (±0.5 second error margin)
-        assert!((audio_data.duration - 10.0).abs() < 0.5,
-                "Duration should be roughly 10 seconds, got {:.2} seconds", audio_data.duration);
+        assert!(
+            (audio_data.duration - 10.0).abs() < 0.5,
+            "Duration should be roughly 10 seconds, got {:.2} seconds",
+            audio_data.duration
+        );
 
         let format = path.extension().unwrap().to_string_lossy().to_uppercase();
         println!("Test {} file loaded successfully:", format);
