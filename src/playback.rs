@@ -5,7 +5,6 @@ use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use hound::WavReader;
 use ratatui::style::Modifier;
 use ratatui::symbols;
 use ratatui::text::Span;
@@ -16,14 +15,37 @@ use ratatui::{
     prelude::{CrosstermBackend, Terminal},
     style::{Color, Style},
 };
+use symphonia::core::audio::{AudioBufferRef, Signal};
+use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use symphonia::default::get_probe;
 
 use dasp_interpolate::linear::Linear;
-use dasp_signal::Signal;
+use dasp_signal::Signal as DaspSignal;
 use std::f64::consts::PI;
+use std::fs::File;
 use std::io::stdout;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// Audio file data containing samples, metadata, and format information.
+#[derive(Debug, Clone)]
+pub struct AudioData {
+    /// Audio samples organized by channel. Each inner vector contains samples for one channel.
+    /// Samples are normalized to the range [-1.0, 1.0].
+    pub samples: Vec<Vec<f32>>,
+    /// Sample rate of the audio in Hz.
+    pub sample_rate: f64,
+    /// Number of audio channels.
+    pub channels: usize,
+    /// Duration of the audio file in seconds.
+    pub duration: f32,
+}
 
 #[allow(unused_variables)]
 pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()> {
@@ -68,69 +90,15 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
     }
     .expect("failed to find output device");
 
-    let config = device.default_output_config().unwrap();
+    let config = device.default_output_config()?;
 
     let sys_chan = config.channels() as usize;
     let sys_sr = config.sample_rate().0 as f64;
-    let mut reader = WavReader::open(file_path).expect("failed to open wav file");
-    let spec = reader.spec();
-    let source_sr = spec.sample_rate as f64;
 
-    let num_channels = spec.channels as usize;
-    let bit = spec.bits_per_sample as usize;
-    let mut file_data: Vec<Vec<f32>> = vec![];
-
-    for _ in 0..num_channels {
-        file_data.push(Vec::new());
-    }
-
-    let mut sample_count = 0;
-
-    match spec.sample_format {
-        hound::SampleFormat::Int => match spec.bits_per_sample {
-            16 => {
-                for result in reader.samples::<i16>() {
-                    let sample = result? as f32 / i16::MAX as f32;
-                    let channel = sample_count % num_channels;
-                    file_data[channel].push(sample);
-                    sample_count += 1;
-                }
-            }
-
-            24 => {
-                for result in reader.samples::<i32>() {
-                    let sample = result?;
-                    let sample = if sample & (1 << 23) != 0 {
-                        (sample | !0xff_ffff) as f32
-                    } else {
-                        sample as f32
-                    };
-                    let sample = sample / (1 << 23) as f32;
-                    let channel = sample_count % num_channels;
-                    file_data[channel].push(sample);
-                    sample_count += 1;
-                }
-            }
-
-            32 => {
-                for result in reader.samples::<i32>() {
-                    let sample = result? as f32 / i32::MAX as f32;
-                    let channel = sample_count % num_channels;
-                    file_data[channel].push(sample);
-                    sample_count += 1;
-                }
-            }
-            _ => panic!("unsupported bit depth"),
-        },
-        hound::SampleFormat::Float => {
-            for result in reader.samples::<f32>() {
-                let sample = result?;
-                let channel = sample_count % num_channels;
-                file_data[channel].push(sample);
-                sample_count += 1;
-            }
-        }
-    }
+    let audio_data = read_file_data(file_path)?;
+    let mut file_data = audio_data.samples;
+    let source_sr = audio_data.sample_rate;
+    let num_channels = audio_data.channels;
 
     // TODO: should be able to play any chan file in any chan system
     for i in num_channels..sys_chan {
@@ -143,12 +111,11 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
 
     for i in 0..sys_chan {
         let mut source = dasp_signal::from_iter(file_data[i].iter().cloned());
-        let a = source.next();
-        let b = source.next();
+        let a = DaspSignal::next(&mut source);
+        let b = DaspSignal::next(&mut source);
         let interp = Linear::new(a, b);
-        let resampled_sig = source
-            .from_hz_to_hz(interp, source_sr, sys_sr)
-            .until_exhausted();
+        let resampled_sig =
+            DaspSignal::from_hz_to_hz(source, interp, source_sr, sys_sr).until_exhausted();
 
         resampled_data[i] = resampled_sig.collect();
     }
@@ -165,7 +132,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         cpal::SampleFormat::F32 => device.build_output_stream(
             &config.into(),
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let channels = sys_chan as usize;
+                let channels = sys_chan;
                 for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -187,7 +154,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         cpal::SampleFormat::I16 => device.build_output_stream(
             &config.into(),
             move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                let channels = sys_chan as usize;
+                let channels = sys_chan;
                 for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -209,7 +176,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         cpal::SampleFormat::U16 => device.build_output_stream(
             &config.into(),
             move |data: &mut [u16], _: &cpal::OutputCallbackInfo| {
-                let channels = sys_chan as usize;
+                let channels = sys_chan;
                 for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -233,7 +200,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         cpal::SampleFormat::I32 => device.build_output_stream(
             &config.into(),
             move |data: &mut [i32], _: &cpal::OutputCallbackInfo| {
-                let channels = sys_chan as usize;
+                let channels = sys_chan;
                 for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -255,7 +222,7 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
         cpal::SampleFormat::U32 => device.build_output_stream(
             &config.into(),
             move |data: &mut [u32], _: &cpal::OutputCallbackInfo| {
-                let channels = sys_chan as usize;
+                let channels = sys_chan;
                 for i in (0..data.len()).step_by(sys_chan) {
                     let p = pointer.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -286,7 +253,8 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
     terminal.hide_cursor()?;
 
     let start_time = Instant::now();
-    let file_duration = WavReader::open(file_path)?.duration() as f32 / spec.sample_rate as f32;
+    // Use duration calculated in read_file_data function
+    let file_duration = audio_data.duration;
 
     // Initialize angles for canvas animation
     let mut angle1 = 0.0;
@@ -523,4 +491,249 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
     disable_raw_mode()?;
     execute!(stdout(), LeaveAlternateScreen)?;
     Ok(())
+}
+
+/// Loads and decodes audio data from WAV, OGG, or MP3 files for playback.
+///
+/// ### Arguments
+/// * `file_path` - Path to the audio file (must be .wav, .ogg, or .mp3)
+///
+/// ### Returns
+/// A `Result` containing `AudioData` with normalized samples, sample rate, and channel count.
+///
+/// ### Supported Formats
+/// - WAV (PCM and IEEE float)
+/// - OGG Vorbis
+/// - MP3
+fn read_file_data(file_path: &str) -> Result<AudioData> {
+    let extension = std::path::Path::new(file_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|s| s.to_lowercase())
+        .ok_or_else(|| anyhow::anyhow!("Could not determine file extension"))?;
+
+    // Validate supported formats
+    match extension.as_str() {
+        "wav" | "ogg" | "mp3" => {}
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unsupported format: {}. Only WAV, OGG, and MP3 are supported.",
+                extension
+            ))
+        }
+    }
+
+    let file = File::open(file_path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    hint.with_extension(&extension);
+
+    let meta_opts = MetadataOptions::default();
+    let fmt_opts = FormatOptions::default();
+
+    let probe_result = get_probe()
+        .format(&hint, mss, &fmt_opts, &meta_opts)
+        .map_err(|e| anyhow::anyhow!("Failed to probe format: {}", e))?;
+    let mut format = probe_result.format;
+
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .ok_or_else(|| anyhow::anyhow!("No audio track found in {}", file_path))?;
+
+    let track_id = track.id;
+    let sample_rate = track
+        .codec_params
+        .sample_rate
+        .ok_or_else(|| anyhow::anyhow!("Sample rate not found"))? as f64;
+    let channels = track
+        .codec_params
+        .channels
+        .map(|c| c.count())
+        .ok_or_else(|| anyhow::anyhow!("Channel count not found"))?;
+
+    // Calculate duration from track parameters if available
+    // Note: this duration calculation must come before the `format.next_packet()` loop to avoid
+    // error[E0502]: cannot borrow `*format` as mutable because it is also borrowed as immutable
+    let duration_from_frame_count = track
+        .codec_params
+        .n_frames
+        .map(|frames| frames as f32 / sample_rate as f32);
+
+    let dec_opts = DecoderOptions::default();
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &dec_opts)
+        .map_err(|e| anyhow::anyhow!("Failed to create decoder: {}", e))?;
+
+    let mut audio_samples: Vec<Vec<f32>> = vec![Vec::new(); channels];
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(SymphoniaError::IoError(ref e))
+                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break;
+            }
+            Err(e) => return Err(anyhow::anyhow!("Error reading packet: {}", e)),
+        };
+
+        if packet.track_id() != track_id {
+            continue;
+        }
+
+        let audio_buf = decoder
+            .decode(&packet)
+            .map_err(|e| anyhow::anyhow!("Decode error: {}", e))?;
+
+        // Convert to f32 samples based on the buffer type
+        match audio_buf {
+            AudioBufferRef::F32(buf) => {
+                for ch in 0..buf.spec().channels.count().min(channels) {
+                    audio_samples[ch].extend_from_slice(buf.chan(ch));
+                }
+            }
+            AudioBufferRef::F64(buf) => {
+                for ch in 0..buf.spec().channels.count().min(channels) {
+                    audio_samples[ch].extend(buf.chan(ch).iter().map(|&s| s as f32));
+                }
+            }
+            AudioBufferRef::S8(buf) => {
+                for ch in 0..buf.spec().channels.count().min(channels) {
+                    audio_samples[ch]
+                        .extend(buf.chan(ch).iter().map(|&s| s as f32 / i8::MAX as f32));
+                }
+            }
+            AudioBufferRef::S16(buf) => {
+                for ch in 0..buf.spec().channels.count().min(channels) {
+                    audio_samples[ch]
+                        .extend(buf.chan(ch).iter().map(|&s| s as f32 / i16::MAX as f32));
+                }
+            }
+            AudioBufferRef::S24(buf) => {
+                for ch in 0..buf.spec().channels.count().min(channels) {
+                    audio_samples[ch].extend(
+                        buf.chan(ch).iter().map(|&s| s.inner() as f32 / 8388608.0), // 2^23
+                    );
+                }
+            }
+            AudioBufferRef::S32(buf) => {
+                for ch in 0..buf.spec().channels.count().min(channels) {
+                    audio_samples[ch]
+                        .extend(buf.chan(ch).iter().map(|&s| s as f32 / i32::MAX as f32));
+                }
+            }
+            AudioBufferRef::U8(buf) => {
+                for ch in 0..buf.spec().channels.count().min(channels) {
+                    audio_samples[ch]
+                        .extend(buf.chan(ch).iter().map(|&s| (s as f32 - 128.0) / 128.0));
+                }
+            }
+            AudioBufferRef::U16(buf) => {
+                for ch in 0..buf.spec().channels.count().min(channels) {
+                    audio_samples[ch]
+                        .extend(buf.chan(ch).iter().map(|&s| (s as f32 - 32768.0) / 32768.0));
+                }
+            }
+            AudioBufferRef::U24(buf) => {
+                for ch in 0..buf.spec().channels.count().min(channels) {
+                    audio_samples[ch].extend(
+                        buf.chan(ch)
+                            .iter()
+                            .map(|&s| (s.inner() as f32 - 8388608.0) / 8388608.0),
+                    );
+                }
+            }
+            AudioBufferRef::U32(buf) => {
+                for ch in 0..buf.spec().channels.count().min(channels) {
+                    audio_samples[ch].extend(
+                        buf.chan(ch)
+                            .iter()
+                            .map(|&s| (s as f32 - 2147483648.0) / 2147483648.0),
+                    );
+                }
+            }
+        }
+    }
+
+    // Verify we got some audio data
+    if audio_samples.is_empty() || audio_samples[0].is_empty() {
+        return Err(anyhow::anyhow!("No audio data found in file"));
+    }
+
+    // Use pre-calculated duration from track params, or fallback to sample count
+    let duration = duration_from_frame_count
+        .unwrap_or_else(|| audio_samples[0].len() as f32 / sample_rate as f32);
+
+    Ok(AudioData {
+        samples: audio_samples,
+        sample_rate,
+        channels,
+        duration,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+    use std::path::PathBuf;
+
+    #[rstest]
+    fn test_read_file_data(#[files("tests/data/xkeril_melody.*")] path: PathBuf) {
+        let result = read_file_data(&path.to_string_lossy());
+        assert!(
+            result.is_ok(),
+            "Failed to load test file {:?}: {:?}",
+            path,
+            result.err()
+        );
+
+        let audio_data = result.unwrap();
+
+        assert!(
+            !audio_data.samples.is_empty(),
+            "File data should not be empty"
+        );
+        assert_eq!(
+            audio_data.samples.len(),
+            audio_data.channels,
+            "Number of channels should match data structure"
+        );
+        assert!(
+            audio_data.sample_rate > 0.0,
+            "Sample rate should be positive"
+        );
+        assert!(audio_data.channels > 0, "Should have at least one channel");
+
+        for channel_data in &audio_data.samples {
+            assert!(
+                !channel_data.is_empty(),
+                "Each channel should have sample data"
+            );
+
+            for &sample in channel_data {
+                assert!(
+                    sample >= -1.0 && sample <= 1.0,
+                    "Samples should be normalized between -1.0 and 1.0"
+                );
+            }
+        }
+
+        // Assert duration is roughly 10 seconds (±0.5 second error margin)
+        assert!(
+            (audio_data.duration - 10.0).abs() < 0.5,
+            "Duration should be roughly 10 seconds, got {:.2} seconds",
+            audio_data.duration
+        );
+
+        let format = path.extension().unwrap().to_string_lossy().to_uppercase();
+        println!("Test {} file loaded successfully:", format);
+        println!("  Sample rate: {} Hz", audio_data.sample_rate);
+        println!("  Channels: {}", audio_data.channels);
+        println!("  Samples per channel: {}", audio_data.samples[0].len());
+        println!("  Duration: {:.2} seconds", audio_data.duration);
+    }
 }
