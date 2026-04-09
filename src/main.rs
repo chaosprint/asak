@@ -15,6 +15,13 @@ use monitor::start_monitoring;
 mod cli;
 use cli::{Cli, Commands};
 
+fn is_supported_playback_file(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "wav" | "ogg" | "mp3"))
+        .unwrap_or(false)
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -108,21 +115,20 @@ fn main() {
                     Some(input) => play_audio(input, args.device, false).unwrap(),
                     None => {
                         let mut options: Vec<String> = vec![];
-                        // check current directory for wav files
+                        // Check current directory for supported playback files.
                         let files = std::fs::read_dir(".").unwrap();
                         for file in files {
                             let file = file.unwrap();
                             let path = file.path().clone();
-                            let path = path.to_str().unwrap();
-                            if path.ends_with(".wav") {
-                                options.push(path.into());
+                            if is_supported_playback_file(&path) {
+                                options.push(path.to_string_lossy().into_owned());
                             }
                         }
                         if options.is_empty() {
-                            println!("No wav files found in current directory");
+                            println!("No .wav, .ogg, or .mp3 files found in current directory");
                         } else {
                             let ans: Result<String, InquireError> =
-                                Select::new("Select a wav file to play", options).prompt();
+                                Select::new("Select a file to play", options).prompt();
                             match ans {
                                 Ok(input) => play_audio(&input, args.device, cli.jack).unwrap(),
                                 Err(_) => println!("Playback cancelled."),
@@ -146,21 +152,20 @@ fn main() {
                     Some(input) => play_audio(input, args.device, false).unwrap(),
                     None => {
                         let mut options: Vec<String> = vec![];
-                        // check current directory for wav files
+                        // Check current directory for supported playback files.
                         let files = std::fs::read_dir(".").unwrap();
                         for file in files {
                             let file = file.unwrap();
                             let path = file.path().clone();
-                            let path = path.to_str().unwrap();
-                            if path.ends_with(".wav") {
-                                options.push(path.into());
+                            if is_supported_playback_file(&path) {
+                                options.push(path.to_string_lossy().into_owned());
                             }
                         }
                         if options.is_empty() {
-                            println!("No wav files found in current directory");
+                            println!("No .wav, .ogg, or .mp3 files found in current directory");
                         } else {
                             let ans: Result<String, InquireError> =
-                                Select::new("Select a wav file to play", options).prompt();
+                                Select::new("Select a file to play", options).prompt();
                             match ans {
                                 Ok(input) => play_audio(&input, args.device, false).unwrap(),
                                 Err(_) => println!("Playback cancelled."),

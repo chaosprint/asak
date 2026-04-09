@@ -305,12 +305,18 @@ pub fn play_audio(file_path: &str, device: Option<u8>, jack: bool) -> Result<()>
             let size = f.area();
             let width = size.width as usize;
 
-            // data vec is calculated here, pick width samples from the file data
+            // Sample the original waveform using its own length so the TUI does not
+            // walk past the end when playback audio has been resampled for the device.
             let mut data_vec: Vec<(f64, f64)> = vec![];
-            for i in 0..width {
-                let index = (i as f32 / width as f32 * length as f32) as usize;
-                let rms = file_data_clone[0][index];
-                data_vec.push((i as f64, rms as f64));
+            if let Some(waveform) = file_data_clone.first() {
+                let waveform_len = waveform.len();
+                if width > 0 && waveform_len > 0 {
+                    for i in 0..width {
+                        let index = ((i * waveform_len) / width).min(waveform_len - 1);
+                        let sample = waveform[index];
+                        data_vec.push((i as f64, sample as f64));
+                    }
+                }
             }
 
             let chunks = Layout::default()

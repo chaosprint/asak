@@ -48,7 +48,7 @@ pub struct RecArgs {
 /// Arguments used for the `play` command
 #[derive(Args, Debug)]
 pub struct PlayArgs {
-    /// Path to the audio file to play; must be wav format for now, e.g. `input.wav`
+    /// Path to the audio file to play, e.g. `input.wav`, `input.ogg`, or `input.mp3`
     #[arg(required = false)]
     pub input: Option<String>,
     /// The audio device index to use

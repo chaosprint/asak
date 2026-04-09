@@ -36,9 +36,11 @@ asak rec hello
 
 ```sh
 asak play hello.wav
+asak play hello.ogg
+asak play hello.mp3
 ```
 
-> If no input name is provided, it will search current directory for `.wav` files and open an interactive menu.
+> If no input name is provided, it will search current directory for `.wav`, `.ogg`, and `.mp3` files and open an interactive menu.
 
 ### monitor
 
