@@ -1,0 +1,11 @@
+pub(crate) const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "ogg"];
+pub(crate) const MODE_TITLES: [&str; 3] = ["Play", "Rec", "Settings"];
+pub(crate) const SIDEBAR_WIDTH: u16 = 30;
+pub(crate) const WAVEFORM_CACHE_BUCKETS: usize = 2048;
+pub(crate) const BRAILLE_PIXELS_PER_CELL_X: usize = 2;
+pub(crate) const BRAILLE_PIXELS_PER_CELL_Y: usize = 4;
+pub(crate) const WAVEFORM_BAR_WIDTH_DOTS: usize = 1;
+pub(crate) const WAVEFORM_BAR_GAP_DOTS: usize = 0;
+pub(crate) const WAVEFORM_VIEW_SECONDS: f64 = 12.0;
+pub(crate) const RECENT_WAVEFORM_VIEW_SECONDS: f64 = 8.0;
+pub(crate) const METER_WINDOW_MS: usize = 90;
