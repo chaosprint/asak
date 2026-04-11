@@ -1,72 +1,153 @@
 # asak
 
-A cross-platform audio recording/playback CLI tool with TUI, written in Rust. The goal is to be an audio Swiss Army Knife (asak), like SoX but more interactive and fun.
+`asak` is a terminal audio tool written in Rust. It gives you a keyboard-driven TUI for browsing audio files, previewing waveforms, recording new `.wav` files, and selecting playback and recording devices.
 
-![Asak](./asak.gif)
+## What It Does
 
-## install
+- Browse and preview `wav`, `mp3`, and `ogg` files
+- Record `.wav` files with a live monitor waveform
+- Show a full-take timeline while recording
+- Display playback waveform, time, and channel meters
+- Choose system input and output devices from the terminal
 
-> You need to have `cargo` installed, see [here](https://doc.rust-lang.org/cargo/getting-started/installation.html).
+## Install
 
-### step 1
+You need a Rust toolchain with `cargo` installed.
+
+Install from crates.io:
 
 ```sh
 cargo install asak
 ```
 
-Note: Make sure the [JACK Audio Connection Kit](https://jackaudio.org) is installed on your machine prior to installing `asak`. For instance, on Ubuntu/Mint, if nothing is returned when running `sudo dpkg -l | grep libjack`, you will need to `sudo apt install libjack-dev`.
-
-### step 2
+Install from this repository:
 
 ```sh
-asak --help
+cargo install --path .
 ```
 
-## usage
-
-### record
+On Linux, you will usually need audio development packages for `cpal`:
 
 ```sh
-asak rec hello
+sudo apt install libasound2-dev libjack-dev
 ```
 
-> If no output name is provided, a prompt will come for you to input output file name. UTC format such as `2024-04-14T09:17:40Z.wav` will be provided as initial file name.
-
-### playback
+If you want JACK support explicitly:
 
 ```sh
-asak play hello.wav
-asak play hello.ogg
-asak play hello.mp3
+cargo install --path . --features jack
 ```
 
-> If no input name is provided, it will search current directory for `.wav`, `.ogg`, and `.mp3` files and open an interactive menu.
+## Start
 
-### monitor
+Run the app:
 
 ```sh
-asak monitor
+asak
 ```
 
-> Reminder: ⚠️ Watch your volume when play the video below❗️
+Run it from source:
 
-https://github.com/chaosprint/asak/assets/35621141/f0876503-4dc7-4c92-b324-c36ec5b747d0
+```sh
+cargo run
+```
 
+## Interface
 
+When `asak` starts, you choose between three modes:
 
-> Known issue: you need to select the same output device as the one in your current system settings.
+- `Play`
+- `Rec`
+- `Settings`
 
-## roadmap?
+### Play
 
-- [x] record audio
-- [x] basic audio playback
-- [x] monitoring an input device with an output device
-- [ ] rec device, dur, sr, ch, fmt
-- [ ] play device, dur, sr, ch, fmt
-- [ ] playback live pos control
-- [ ] live amp + fx (reverb, delay, etc)
-- [ ] passthru + live fx
+`Play` opens a file browser rooted at the current working directory.
 
-## contribution
+- Browse folders and supported audio files
+- Open a file to preview it immediately
+- See the full waveform with a left-to-right playhead
+- See playback time, sample rate, channels, and meters
 
-Just open an issue or PR, I'm happy to discuss and collaborate.
+Keys:
+
+- `Up` / `Down`: move through the browser
+- `Enter`: open folder or preview file
+- `Backspace`: go to parent directory
+- `Space`: pause or resume playback
+- `Esc`: stop playback and return to mode selection
+
+### Rec
+
+`Rec` records a `.wav` file into the current working directory.
+
+- Type a file name in the left panel
+- Press `Enter` to start recording
+- Press `Enter` again to stop
+- Watch the live monitor waveform while recording
+- See the full-take timeline update as the recording grows
+
+After saving, `asak` returns to the mode selector and refreshes the `Play` browser so the new file is ready to preview.
+
+Keys before recording starts:
+
+- `Left` / `Right`: move cursor in the filename
+- `Home` / `End`: jump cursor
+- `Backspace` / `Delete`: edit filename
+- `Enter`: start recording
+
+Keys while recording:
+
+- `Enter`: stop recording
+- `Esc`: leave recording mode
+
+### Settings
+
+`Settings` lets you choose playback and recording devices.
+
+- Select `Playback Device` or `Recording Device`
+- Open the device list with `Enter`
+- Move through devices with `Up` / `Down`
+- Confirm and return with `Enter` or `Backspace`
+- Refresh device discovery with `r`
+
+The system default devices are used as the default selection.
+
+## Global Keys
+
+- `Up` / `Down`: move between modes on the mode selector
+- `Enter`: open the selected mode
+- `Esc`: return to the mode selector
+- `q`: quit
+
+## Development
+
+Format the project:
+
+```sh
+cargo fmt
+```
+
+Run Clippy with warnings denied:
+
+```sh
+cargo clippy --all-targets -- -D warnings
+```
+
+Build a release binary:
+
+```sh
+cargo build --release
+```
+
+The build script also generates shell completions and man pages into `target/completions` and `target/man`.
+
+## Notes
+
+- `asak` uses the current working directory as the initial browser root
+- Recordings are saved into the current working directory by default
+- The app runs in an alternate terminal screen while active
+
+## Contributing
+
+Issues and pull requests are welcome.
