@@ -9,6 +9,8 @@ pub(crate) fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Resu
     let mut app = App::new();
 
     loop {
+        app.poll_recording_stop();
+
         if app.active_tab == ActiveTab::Rec && app.navigation_level == NavigationLevel::TabContent {
             app.poll_recording();
         }
@@ -74,6 +76,11 @@ pub(crate) fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Resu
                     && app.is_in_play_preview() =>
             {
                 app.toggle_pause();
+            }
+            key if app.navigation_level == NavigationLevel::TabContent
+                && app.active_tab == ActiveTab::Settings =>
+            {
+                app.handle_settings_key(key)
             }
             key if app.navigation_level == NavigationLevel::TabContent
                 && app.active_tab == ActiveTab::Rec =>

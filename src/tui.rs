@@ -10,11 +10,13 @@ mod audio;
 mod constants;
 mod render;
 mod runtime;
+mod settings;
 mod state;
 mod util;
 mod waveform;
 
 pub(crate) use constants::*;
+pub(crate) use settings::*;
 pub(crate) use state::*;
 pub(crate) use util::*;
 pub(crate) use waveform::*;

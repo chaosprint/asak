@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use crossbeam::channel::{unbounded, Sender};
 use dasp_interpolate::linear::Linear;
 use dasp_signal::Signal as DaspSignal;
@@ -10,13 +10,18 @@ use std::sync::{
 };
 use std::time::Instant;
 
-use crate::tui::{default_recording_name, AudioPreview, PlaybackSession, RecordingSession};
+use crate::tui::{
+    default_recording_name, AudioPreview, PlaybackSession, RecordingMessage, RecordingSession,
+};
 
-pub(crate) fn start_playback(preview: &AudioPreview) -> Result<PlaybackSession> {
-    let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .context("No default output device available")?;
+use super::devices::{resolve_input_device, resolve_output_device};
+
+pub(crate) fn start_playback(
+    preview: &AudioPreview,
+    preferred_device_name: Option<&str>,
+) -> Result<PlaybackSession> {
+    let device = resolve_output_device(preferred_device_name)
+        .context("No configured playback device available")?;
     let config = device.default_output_config()?;
 
     let output_channels = config.channels() as usize;
@@ -108,11 +113,12 @@ pub(crate) fn start_playback(preview: &AudioPreview) -> Result<PlaybackSession> 
     })
 }
 
-pub(crate) fn start_recording_session(name: &str) -> Result<RecordingSession> {
-    let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .context("No default input device available")?;
+pub(crate) fn start_recording_session(
+    name: &str,
+    preferred_device_name: Option<&str>,
+) -> Result<RecordingSession> {
+    let device = resolve_input_device(preferred_device_name)
+        .context("No configured recording device available")?;
     let device_name = device
         .name()
         .unwrap_or_else(|_| "Unknown input device".to_string());
@@ -137,9 +143,14 @@ pub(crate) fn start_recording_session(name: &str) -> Result<RecordingSession> {
         let mut writer = WavWriter::create(&writer_path, writer_spec)
             .with_context(|| format!("Failed to create '{}'", writer_path.display()))?;
 
-        while let Ok(chunk) = writer_rx.recv() {
-            for sample in chunk {
-                writer.write_sample(sample)?;
+        while let Ok(message) = writer_rx.recv() {
+            match message {
+                RecordingMessage::Samples(chunk) => {
+                    for sample in chunk {
+                        writer.write_sample(sample)?;
+                    }
+                }
+                RecordingMessage::Stop => break,
             }
         }
 
@@ -192,7 +203,7 @@ pub(crate) fn start_recording_session(name: &str) -> Result<RecordingSession> {
             &device,
             &config.into(),
             ui_tx,
-            writer_tx,
+            writer_tx.clone(),
             |sample| (sample as f32 / u32::MAX as f32) * 2.0 - 1.0,
             err_fn,
         )?,
@@ -204,6 +215,7 @@ pub(crate) fn start_recording_session(name: &str) -> Result<RecordingSession> {
     Ok(RecordingSession {
         _stream: stream,
         rx,
+        writer_tx,
         output_path,
         writer_thread,
         started_at: Instant::now(),
@@ -262,7 +274,7 @@ fn build_input_stream<T, F>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     ui_tx: Sender<Vec<f32>>,
-    writer_tx: Sender<Vec<f32>>,
+    writer_tx: Sender<RecordingMessage>,
     convert: F,
     err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<cpal::Stream>
@@ -275,7 +287,7 @@ where
         move |input: &[T], _: &cpal::InputCallbackInfo| {
             let chunk = input.iter().copied().map(convert).collect::<Vec<_>>();
             let _ = ui_tx.send(chunk.clone());
-            let _ = writer_tx.send(chunk);
+            let _ = writer_tx.send(RecordingMessage::Samples(chunk));
         },
         err_fn,
         None,

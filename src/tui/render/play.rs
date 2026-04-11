@@ -8,9 +8,9 @@ use ratatui::{
 
 use crate::tui::draw_waveform;
 use crate::tui::{
-    build_dynamic_meter_levels, build_dynamic_waveform_levels, format_duration, format_sample_rate,
-    render_preview_meter, resample_levels, App, AudioPreview, BrowserEntryKind, PlayView,
-    PlaybackSnapshot, BRAILLE_PIXELS_PER_CELL_X, BRAILLE_PIXELS_PER_CELL_Y, WAVEFORM_BAR_GAP_DOTS,
+    build_dynamic_meter_levels, format_duration, format_sample_rate, render_preview_meter,
+    resample_levels, App, AudioPreview, BrowserEntryKind, PlayView, PlaybackSnapshot,
+    BRAILLE_PIXELS_PER_CELL_X, BRAILLE_PIXELS_PER_CELL_Y, WAVEFORM_BAR_GAP_DOTS,
     WAVEFORM_BAR_WIDTH_DOTS,
 };
 
@@ -161,19 +161,21 @@ fn render_play_preview(
     let waveform_dot_height = layout[1].height as usize * BRAILLE_PIXELS_PER_CELL_Y;
     let waveform_bucket_count = (waveform_dot_width + WAVEFORM_BAR_GAP_DOTS)
         / (WAVEFORM_BAR_WIDTH_DOTS + WAVEFORM_BAR_GAP_DOTS);
-    let (waveform_levels, playhead_index) = if let Some(snapshot) = &playback {
-        build_dynamic_waveform_levels(
-            &snapshot.samples,
-            snapshot.pointer,
-            snapshot.sample_rate,
-            waveform_bucket_count,
-        )
-    } else {
-        (
-            resample_levels(&preview.waveform, waveform_bucket_count),
-            waveform_bucket_count / 2,
-        )
-    };
+    let waveform_levels = resample_levels(&preview.waveform, waveform_bucket_count);
+    let playhead_index = playback
+        .as_ref()
+        .map(|snapshot| {
+            if snapshot.frame_len <= 1 || waveform_bucket_count <= 1 {
+                0
+            } else {
+                (((snapshot.pointer.min(snapshot.frame_len.saturating_sub(1))) as f32
+                    / snapshot.frame_len.saturating_sub(1) as f32)
+                    * waveform_bucket_count.saturating_sub(1) as f32)
+                    .round() as usize
+            }
+        })
+        .unwrap_or(0)
+        .min(waveform_bucket_count.saturating_sub(1));
 
     let waveform = Canvas::default()
         .marker(symbols::Marker::Braille)

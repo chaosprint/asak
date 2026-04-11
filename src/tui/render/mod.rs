@@ -35,7 +35,12 @@ pub(crate) fn render(area: Rect, frame: &mut ratatui::Frame<'_>, app: &App) {
             (ActiveTab::Rec, _) => {
                 "type filename | left/right: move cursor | enter: start/stop | esc: modes | q: quit"
             }
-            (ActiveTab::Settings, _) => "esc: modes | q: quit",
+            (ActiveTab::Settings, _) if app.device_settings.is_selecting_device() => {
+                "up/down: choose device | enter/backspace: confirm | r: refresh | esc: modes | q: quit"
+            }
+            (ActiveTab::Settings, _) => {
+                "up/down: focus setting | enter: open | r: refresh | esc: modes | q: quit"
+            }
         },
     };
 

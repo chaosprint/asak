@@ -8,9 +8,9 @@ use ratatui::{
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::tui::{
-    build_waveform_cache_mono, char_to_byte_index, draw_waveform, draw_waveform_without_playhead,
-    format_duration, format_sample_rate, App, BRAILLE_PIXELS_PER_CELL_X, BRAILLE_PIXELS_PER_CELL_Y,
-    WAVEFORM_BAR_GAP_DOTS, WAVEFORM_BAR_WIDTH_DOTS,
+    build_waveform_cache_mono, char_to_byte_index, draw_waveform, format_duration,
+    format_sample_rate, App, BRAILLE_PIXELS_PER_CELL_X, BRAILLE_PIXELS_PER_CELL_Y,
+    RECENT_WAVEFORM_VIEW_SECONDS, WAVEFORM_BAR_GAP_DOTS, WAVEFORM_BAR_WIDTH_DOTS,
 };
 
 pub(crate) fn render_rec_sidebar(area: Rect, frame: &mut ratatui::Frame<'_>, app: &App) {
@@ -136,13 +136,11 @@ pub(crate) fn render_rec_sidebar(area: Rect, frame: &mut ratatui::Frame<'_>, app
 
 pub(crate) fn render_rec_main(area: Rect, frame: &mut ratatui::Frame<'_>, app: &App) {
     let Some(session) = &app.recording_session else {
-        let info = Paragraph::new(vec![
-            Line::from("Rec waits for a filename on the left before opening the stream."),
-            Line::from("Once recording starts, the right side shows both waveforms."),
-            Line::from(""),
-            Line::from("Top: rolling live waveform."),
-            Line::from("Bottom: cumulative waveform for the whole take."),
-        ])
+        let info = Paragraph::new(if app.pending_recording_stop.is_some() {
+            "Finalizing recording..."
+        } else {
+            "Ready to record."
+        })
         .block(Block::default().borders(Borders::ALL).title("Rec Overview"))
         .wrap(Wrap { trim: false });
         frame.render_widget(info, area);
@@ -151,20 +149,21 @@ pub(crate) fn render_rec_main(area: Rect, frame: &mut ratatui::Frame<'_>, app: &
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(12),
-            Constraint::Length(6),
-            Constraint::Length(4),
-        ])
+        .constraints([Constraint::Min(12), Constraint::Length(6)])
         .split(area);
 
-    let recent_block = Block::default().borders(Borders::ALL).title("Recent");
+    let elapsed_label = format_duration(session.started_at.elapsed().as_secs_f32());
+    let window_frames =
+        ((session.sample_rate * RECENT_WAVEFORM_VIEW_SECONDS).round() as usize).max(1);
+
+    let recent_block = Block::default().borders(Borders::ALL).title("Monitor");
     let recent_inner = recent_block.inner(layout[0]);
     let recent_dot_width = recent_inner.width as usize * BRAILLE_PIXELS_PER_CELL_X;
     let recent_dot_height = recent_inner.height as usize * BRAILLE_PIXELS_PER_CELL_Y;
     let recent_bucket_count = (recent_dot_width + WAVEFORM_BAR_GAP_DOTS)
         / (WAVEFORM_BAR_WIDTH_DOTS + WAVEFORM_BAR_GAP_DOTS);
-    let recent_levels = build_waveform_cache_mono(&session.recent_samples, recent_bucket_count);
+    let (recent_levels, recent_playhead) =
+        build_recent_monitor_levels(&session.recent_samples, window_frames, recent_bucket_count);
 
     let recent_waveform = Canvas::default()
         .marker(symbols::Marker::Braille)
@@ -172,23 +171,26 @@ pub(crate) fn render_rec_main(area: Rect, frame: &mut ratatui::Frame<'_>, app: &
         .x_bounds([0.0, recent_dot_width.max(1) as f64 - 1.0])
         .y_bounds([0.0, recent_dot_height.max(1) as f64 - 1.0])
         .paint(move |ctx| {
-            draw_waveform_without_playhead(
+            draw_waveform(
                 ctx,
                 &recent_levels,
+                recent_playhead,
                 recent_dot_width,
                 recent_dot_height,
             );
         });
     frame.render_widget(recent_waveform, layout[0]);
 
-    let session_block = Block::default().borders(Borders::ALL).title("Session");
+    let session_block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!("Timeline 00:00 -> {elapsed_label}"));
     let session_inner = session_block.inner(layout[1]);
     let session_dot_width = session_inner.width as usize * BRAILLE_PIXELS_PER_CELL_X;
     let session_dot_height = session_inner.height as usize * BRAILLE_PIXELS_PER_CELL_Y;
     let session_bucket_count = (session_dot_width + WAVEFORM_BAR_GAP_DOTS)
         / (WAVEFORM_BAR_WIDTH_DOTS + WAVEFORM_BAR_GAP_DOTS);
     let session_levels = build_waveform_cache_mono(&session.session_samples, session_bucket_count);
-    let session_playhead = session_levels.len().saturating_sub(1);
+    let session_playhead = session_bucket_count.saturating_sub(1);
 
     let overview_waveform = Canvas::default()
         .marker(symbols::Marker::Braille)
@@ -205,12 +207,38 @@ pub(crate) fn render_rec_main(area: Rect, frame: &mut ratatui::Frame<'_>, app: &
             );
         });
     frame.render_widget(overview_waveform, layout[1]);
+}
 
-    let info = Paragraph::new(vec![
-        Line::from("Top: continuously scrolling recent waveform."),
-        Line::from("Bottom: cumulative waveform across the whole recording."),
-    ])
-    .block(Block::default().borders(Borders::ALL).title("Info"))
-    .wrap(Wrap { trim: false });
-    frame.render_widget(info, layout[2]);
+fn build_recent_monitor_levels(
+    samples: &[f32],
+    window_frames: usize,
+    bucket_count: usize,
+) -> (Vec<f32>, usize) {
+    if bucket_count == 0 {
+        return (Vec::new(), 0);
+    }
+
+    let playhead_index = bucket_count / 2;
+    if samples.is_empty() {
+        return (vec![0.0; bucket_count], playhead_index);
+    }
+
+    let history_frames = (window_frames / 2).max(1);
+    let history_bucket_count = (playhead_index + 1).max(1);
+    let visible_samples = if samples.len() > history_frames {
+        &samples[samples.len() - history_frames..]
+    } else {
+        samples
+    };
+
+    let filled_bucket_count = (((visible_samples.len().min(history_frames)) as f32
+        / history_frames as f32)
+        * history_bucket_count as f32)
+        .ceil() as usize;
+    let filled_bucket_count = filled_bucket_count.clamp(1, history_bucket_count);
+
+    let active_levels = build_waveform_cache_mono(visible_samples, filled_bucket_count);
+    let mut levels = vec![0.0; bucket_count];
+    levels[..filled_bucket_count].copy_from_slice(&active_levels);
+    (levels, playhead_index)
 }

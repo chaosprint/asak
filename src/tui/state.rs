@@ -1,6 +1,6 @@
 use anyhow::Result;
 use cpal::Stream;
-use crossbeam::channel::Receiver;
+use crossbeam::channel::{unbounded, Receiver, Sender, TryRecvError};
 use crossterm::event::KeyCode;
 use ratatui::widgets::ListState;
 use std::{
@@ -16,7 +16,7 @@ use std::{
 use crate::tui::{
     audio::{load_audio_preview, load_browser_entries, start_playback, start_recording_session},
     char_to_byte_index, default_recording_cursor, default_recording_name, downmix_interleaved,
-    RECENT_WAVEFORM_VIEW_SECONDS,
+    DeviceSettings, RECENT_WAVEFORM_VIEW_SECONDS,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,9 +107,15 @@ pub(crate) struct PlaybackSession {
     pub(crate) sample_rate: f64,
 }
 
+pub(crate) enum RecordingMessage {
+    Samples(Vec<f32>),
+    Stop,
+}
+
 pub(crate) struct RecordingSession {
     pub(crate) _stream: Stream,
     pub(crate) rx: Receiver<Vec<f32>>,
+    pub(crate) writer_tx: Sender<RecordingMessage>,
     pub(crate) output_path: PathBuf,
     pub(crate) writer_thread: JoinHandle<Result<()>>,
     pub(crate) started_at: Instant,
@@ -118,6 +124,10 @@ pub(crate) struct RecordingSession {
     pub(crate) device_name: String,
     pub(crate) recent_samples: Vec<f32>,
     pub(crate) session_samples: Vec<f32>,
+}
+
+pub(crate) struct PendingRecordingStop {
+    pub(crate) rx: Receiver<Result<PathBuf>>,
 }
 
 pub(crate) struct App {
@@ -130,7 +140,9 @@ pub(crate) struct App {
     pub(crate) playback_session: Option<PlaybackSession>,
     pub(crate) rec_file_name: String,
     pub(crate) rec_cursor_position: usize,
+    pub(crate) device_settings: DeviceSettings,
     pub(crate) recording_session: Option<RecordingSession>,
+    pub(crate) pending_recording_stop: Option<PendingRecordingStop>,
     pub(crate) recording_error: Option<String>,
     pub(crate) last_recording_path: Option<PathBuf>,
 }
@@ -156,7 +168,9 @@ impl App {
             playback_session: None,
             rec_file_name,
             rec_cursor_position,
+            device_settings: DeviceSettings::new(),
             recording_session: None,
+            pending_recording_stop: None,
             recording_error: None,
             last_recording_path: None,
         }
@@ -183,7 +197,6 @@ impl App {
     pub(crate) fn leave_active_tab(&mut self) {
         if self.active_tab == ActiveTab::Play && self.is_in_play_preview() {
             self.leave_preview();
-            return;
         }
 
         if self.active_tab == ActiveTab::Rec && self.recording_session.is_some() {
@@ -245,16 +258,19 @@ impl App {
             BrowserEntryKind::AudioFile => {
                 self.stop_playback();
                 self.play_view = match load_audio_preview(&entry.path) {
-                    Ok(preview) => match start_playback(&preview) {
-                        Ok(session) => {
-                            self.playback_session = Some(session);
-                            PlayView::Preview(preview)
+                    Ok(preview) => {
+                        match start_playback(&preview, self.device_settings.selected_output_name())
+                        {
+                            Ok(session) => {
+                                self.playback_session = Some(session);
+                                PlayView::Preview(preview)
+                            }
+                            Err(err) => PlayView::PreviewError {
+                                path: entry.path,
+                                message: err.to_string(),
+                            },
                         }
-                        Err(err) => PlayView::PreviewError {
-                            path: entry.path,
-                            message: err.to_string(),
-                        },
-                    },
+                    }
                     Err(err) => PlayView::PreviewError {
                         path: entry.path,
                         message: err.to_string(),
@@ -285,6 +301,24 @@ impl App {
         } else {
             self.play_list_state.select(Some(0));
         }
+    }
+
+    fn sync_play_browser_to_path(&mut self, path: &std::path::Path) {
+        let Some(parent) = path.parent() else {
+            return;
+        };
+
+        self.stop_playback();
+        self.play_dir = parent.to_path_buf();
+        self.play_entries = load_browser_entries(&self.play_dir);
+        self.play_view = PlayView::Browser;
+
+        let selected_index = self
+            .play_entries
+            .iter()
+            .position(|entry| entry.path == path)
+            .or_else(|| (!self.play_entries.is_empty()).then_some(0));
+        self.play_list_state.select(selected_index);
     }
 
     pub(crate) fn stop_playback(&mut self) {
@@ -339,15 +373,46 @@ impl App {
         }
     }
 
+    pub(crate) fn poll_recording_stop(&mut self) {
+        let Some(pending) = &self.pending_recording_stop else {
+            return;
+        };
+
+        match pending.rx.try_recv() {
+            Ok(Ok(output_path)) => {
+                self.pending_recording_stop = None;
+                self.recording_error = None;
+                self.navigation_level = NavigationLevel::TabSelect;
+                self.last_recording_path = Some(output_path);
+                if let Some(path) = self.last_recording_path.clone() {
+                    self.sync_play_browser_to_path(&path);
+                }
+                self.reset_recording_name();
+            }
+            Ok(Err(err)) => {
+                self.pending_recording_stop = None;
+                self.recording_error = Some(err.to_string());
+            }
+            Err(TryRecvError::Disconnected) => {
+                self.pending_recording_stop = None;
+                self.recording_error = Some("Writer thread disconnected".to_string());
+            }
+            Err(TryRecvError::Empty) => {}
+        }
+    }
+
     pub(crate) fn start_recording(&mut self) {
-        if self.recording_session.is_some() {
+        if self.recording_session.is_some() || self.pending_recording_stop.is_some() {
             return;
         }
 
         self.recording_error = None;
         self.last_recording_path = None;
 
-        match start_recording_session(&self.rec_file_name) {
+        match start_recording_session(
+            &self.rec_file_name,
+            self.device_settings.selected_input_name(),
+        ) {
             Ok(session) => self.recording_session = Some(session),
             Err(err) => self.recording_error = Some(err.to_string()),
         }
@@ -355,18 +420,35 @@ impl App {
 
     pub(crate) fn stop_recording(&mut self) {
         if let Some(session) = self.recording_session.take() {
-            let output_path = session.output_path.clone();
-            drop(session._stream);
+            let RecordingSession {
+                _stream,
+                rx: _,
+                writer_tx,
+                output_path,
+                writer_thread,
+                started_at: _,
+                sample_rate: _,
+                channels: _,
+                device_name: _,
+                recent_samples: _,
+                session_samples: _,
+            } = session;
 
-            match session.writer_thread.join() {
-                Ok(Ok(())) => {
-                    self.recording_error = None;
-                    self.last_recording_path = Some(output_path);
-                    self.reset_recording_name();
-                }
-                Ok(Err(err)) => self.recording_error = Some(err.to_string()),
-                Err(_) => self.recording_error = Some("Writer thread panicked".to_string()),
-            }
+            drop(_stream);
+            let _ = writer_tx.send(RecordingMessage::Stop);
+            drop(writer_tx);
+
+            let (result_tx, result_rx) = unbounded();
+            std::thread::spawn(move || {
+                let result = match writer_thread.join() {
+                    Ok(Ok(())) => Ok(output_path),
+                    Ok(Err(err)) => Err(err),
+                    Err(_) => Err(anyhow::anyhow!("Writer thread panicked")),
+                };
+                let _ = result_tx.send(result);
+            });
+
+            self.pending_recording_stop = Some(PendingRecordingStop { rx: result_rx });
         }
     }
 
@@ -433,6 +515,28 @@ impl App {
             KeyCode::Char(ch) if self.recording_session.is_none() && !ch.is_control() => {
                 self.insert_rec_char(ch);
             }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn handle_settings_key(&mut self, key: KeyCode) {
+        if self.device_settings.is_selecting_device() {
+            match key {
+                KeyCode::Up | KeyCode::Char('k') => self.device_settings.select_previous_device(),
+                KeyCode::Down | KeyCode::Char('j') => self.device_settings.select_next_device(),
+                KeyCode::Enter => self.device_settings.leave_field(),
+                KeyCode::Backspace => self.device_settings.leave_field(),
+                KeyCode::Char('r') => self.device_settings.refresh(),
+                _ => {}
+            }
+            return;
+        }
+
+        match key {
+            KeyCode::Up | KeyCode::Char('k') => self.device_settings.focus_previous(),
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => self.device_settings.focus_next(),
+            KeyCode::Enter => self.device_settings.enter_field(),
+            KeyCode::Char('r') => self.device_settings.refresh(),
             _ => {}
         }
     }

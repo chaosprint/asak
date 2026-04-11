@@ -8,7 +8,6 @@ use ratatui::{
 
 use crate::tui::{
     MeterLevel, PlaybackSnapshot, METER_WINDOW_MS, WAVEFORM_BAR_GAP_DOTS, WAVEFORM_BAR_WIDTH_DOTS,
-    WAVEFORM_VIEW_SECONDS,
 };
 
 pub(crate) fn build_waveform_cache(channels: &[Vec<f32>], bucket_count: usize) -> Vec<f32> {
@@ -75,8 +74,9 @@ pub(crate) fn build_waveform_cache_mono(samples: &[f32], bucket_count: usize) ->
         }
 
         let mut square_sum = 0.0f64;
-        let mut peak = 0.0f32;
         let mut sample_count = 0usize;
+        let mut peak = 0.0f32;
+
         for &sample in &samples[start..end] {
             square_sum += (sample as f64) * (sample as f64);
             peak = peak.max(sample.abs());
@@ -168,44 +168,6 @@ pub(crate) fn resample_levels(levels: &[f32], bucket_count: usize) -> Vec<f32> {
         .collect()
 }
 
-pub(crate) fn build_dynamic_waveform_levels(
-    channels: &[Vec<f32>],
-    pointer: usize,
-    sample_rate: f64,
-    bucket_count: usize,
-) -> (Vec<f32>, usize) {
-    if bucket_count == 0 || channels.is_empty() || channels[0].is_empty() {
-        return (Vec::new(), 0);
-    }
-
-    let window_frames = ((sample_rate * WAVEFORM_VIEW_SECONDS).round() as usize).max(bucket_count);
-    let half_window = window_frames / 2;
-    let frame_len = channels[0].len();
-    let start = pointer.saturating_sub(half_window);
-    let mut levels = Vec::with_capacity(bucket_count);
-
-    for bucket in 0..bucket_count {
-        let bucket_start = start + (bucket * window_frames) / bucket_count;
-        let mut bucket_end = start + ((bucket + 1) * window_frames) / bucket_count;
-        if bucket_end <= bucket_start {
-            bucket_end = bucket_start + 1;
-        }
-
-        let range_start = bucket_start.min(frame_len.saturating_sub(1));
-        let range_end = bucket_end.min(frame_len).max(range_start + 1);
-        levels.push(bucket_level(channels, range_start, range_end));
-    }
-
-    let playhead_index = (((pointer.saturating_sub(start)) as f32 / window_frames as f32)
-        * bucket_count as f32)
-        .floor() as usize;
-
-    (
-        normalize_and_smooth(&levels),
-        playhead_index.min(bucket_count.saturating_sub(1)),
-    )
-}
-
 pub(crate) fn build_dynamic_meter_levels(snapshot: &PlaybackSnapshot) -> Vec<MeterLevel> {
     let window_frames = ((snapshot.sample_rate * METER_WINDOW_MS as f64) / 1000.0)
         .round()
@@ -294,46 +256,6 @@ pub(crate) fn draw_waveform(
         y2: dot_height as f64 - 1.0,
         color: Color::LightCyan,
     });
-
-    for (index, level) in levels.iter().copied().enumerate() {
-        let column_start = index * (WAVEFORM_BAR_WIDTH_DOTS + WAVEFORM_BAR_GAP_DOTS);
-        if column_start >= dot_width {
-            break;
-        }
-
-        let shaped_level = level.clamp(0.0, 1.0).powf(0.72) as f64;
-        let bar_radius = if shaped_level <= 0.0 {
-            0.0
-        } else {
-            (shaped_level * max_bar_radius).max(1.0)
-        };
-        let top = (midpoint - bar_radius).max(0.0);
-        let bottom = (midpoint + bar_radius).min(dot_height as f64 - 1.0);
-
-        for x in column_start..(column_start + WAVEFORM_BAR_WIDTH_DOTS).min(dot_width) {
-            ctx.draw(&CanvasLine {
-                x1: x as f64,
-                y1: top,
-                x2: x as f64,
-                y2: bottom,
-                color: Color::White,
-            });
-        }
-    }
-}
-
-pub(crate) fn draw_waveform_without_playhead(
-    ctx: &mut Context<'_>,
-    levels: &[f32],
-    dot_width: usize,
-    dot_height: usize,
-) {
-    if levels.is_empty() || dot_width == 0 || dot_height == 0 {
-        return;
-    }
-
-    let midpoint = (dot_height as f64 - 1.0) / 2.0;
-    let max_bar_radius = midpoint.max(1.0);
 
     for (index, level) in levels.iter().copied().enumerate() {
         let column_start = index * (WAVEFORM_BAR_WIDTH_DOTS + WAVEFORM_BAR_GAP_DOTS);
