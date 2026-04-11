@@ -2,6 +2,9 @@
 
 `asak` is a terminal audio tool written in Rust. It gives you a keyboard-driven TUI for browsing audio files, previewing waveforms, recording new `.wav` files, and selecting playback and recording devices.
 
+<img width="912" height="740" alt="image" src="https://github.com/user-attachments/assets/d9e62893-40de-424b-9277-08fea11fa52a" />
+
+
 ## What It Does
 
 - Browse and preview `wav`, `mp3`, and `ogg` files
