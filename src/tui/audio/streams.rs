@@ -29,7 +29,7 @@ pub(crate) fn start_playback(
     let source_channels = preview.samples.len().max(1);
 
     let mut resampled_data = vec![Vec::new(); output_channels];
-    for output_channel in 0..output_channels {
+    for (output_channel, channel_samples) in resampled_data.iter_mut().enumerate() {
         let source_index = output_channel.min(source_channels - 1);
         let source_samples = preview.samples[source_index].clone();
         let mut source = dasp_signal::from_iter(source_samples.into_iter());
@@ -39,7 +39,7 @@ pub(crate) fn start_playback(
         let signal =
             DaspSignal::from_hz_to_hz(source, interp, preview.sample_rate, output_sample_rate)
                 .until_exhausted();
-        resampled_data[output_channel] = signal.collect();
+        *channel_samples = signal.collect();
     }
 
     let frame_len = resampled_data

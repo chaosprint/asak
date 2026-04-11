@@ -207,32 +207,6 @@ pub(crate) fn build_dynamic_meter_levels(snapshot: &PlaybackSnapshot) -> Vec<Met
         .collect()
 }
 
-fn bucket_level(channels: &[Vec<f32>], start: usize, end: usize) -> f32 {
-    let mut square_sum = 0.0f64;
-    let mut sample_count = 0usize;
-    let mut peak = 0.0f32;
-
-    for channel in channels {
-        if channel.is_empty() {
-            continue;
-        }
-        let range_start = start.min(channel.len().saturating_sub(1));
-        let range_end = end.min(channel.len()).max(range_start + 1);
-        for &sample in &channel[range_start..range_end] {
-            square_sum += (sample as f64) * (sample as f64);
-            peak = peak.max(sample.abs());
-            sample_count += 1;
-        }
-    }
-
-    if sample_count == 0 {
-        return 0.0;
-    }
-
-    let rms = (square_sum / sample_count as f64).sqrt() as f32;
-    (rms * 0.84) + (peak * 0.16)
-}
-
 pub(crate) fn draw_waveform(
     ctx: &mut Context<'_>,
     levels: &[f32],

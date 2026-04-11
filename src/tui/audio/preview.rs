@@ -84,18 +84,30 @@ pub(crate) fn load_audio_preview(path: &Path) -> Result<AudioPreview> {
             .context("Failed to decode audio packet")?;
         match decoded {
             AudioBufferRef::F32(buf) => {
-                for ch in 0..buf.spec().channels.count().min(channels) {
-                    samples[ch].extend_from_slice(buf.chan(ch));
+                for (ch, channel_samples) in samples
+                    .iter_mut()
+                    .enumerate()
+                    .take(buf.spec().channels.count().min(channels))
+                {
+                    channel_samples.extend_from_slice(buf.chan(ch));
                 }
             }
             AudioBufferRef::F64(buf) => {
-                for ch in 0..buf.spec().channels.count().min(channels) {
-                    samples[ch].extend(buf.chan(ch).iter().map(|&sample| sample as f32));
+                for (ch, channel_samples) in samples
+                    .iter_mut()
+                    .enumerate()
+                    .take(buf.spec().channels.count().min(channels))
+                {
+                    channel_samples.extend(buf.chan(ch).iter().map(|&sample| sample as f32));
                 }
             }
             AudioBufferRef::S8(buf) => {
-                for ch in 0..buf.spec().channels.count().min(channels) {
-                    samples[ch].extend(
+                for (ch, channel_samples) in samples
+                    .iter_mut()
+                    .enumerate()
+                    .take(buf.spec().channels.count().min(channels))
+                {
+                    channel_samples.extend(
                         buf.chan(ch)
                             .iter()
                             .map(|&sample| sample as f32 / i8::MAX as f32),
@@ -103,8 +115,12 @@ pub(crate) fn load_audio_preview(path: &Path) -> Result<AudioPreview> {
                 }
             }
             AudioBufferRef::S16(buf) => {
-                for ch in 0..buf.spec().channels.count().min(channels) {
-                    samples[ch].extend(
+                for (ch, channel_samples) in samples
+                    .iter_mut()
+                    .enumerate()
+                    .take(buf.spec().channels.count().min(channels))
+                {
+                    channel_samples.extend(
                         buf.chan(ch)
                             .iter()
                             .map(|&sample| sample as f32 / i16::MAX as f32),
@@ -112,8 +128,12 @@ pub(crate) fn load_audio_preview(path: &Path) -> Result<AudioPreview> {
                 }
             }
             AudioBufferRef::S24(buf) => {
-                for ch in 0..buf.spec().channels.count().min(channels) {
-                    samples[ch].extend(
+                for (ch, channel_samples) in samples
+                    .iter_mut()
+                    .enumerate()
+                    .take(buf.spec().channels.count().min(channels))
+                {
+                    channel_samples.extend(
                         buf.chan(ch)
                             .iter()
                             .map(|sample| sample.inner() as f32 / 8_388_607.0),
@@ -121,8 +141,12 @@ pub(crate) fn load_audio_preview(path: &Path) -> Result<AudioPreview> {
                 }
             }
             AudioBufferRef::S32(buf) => {
-                for ch in 0..buf.spec().channels.count().min(channels) {
-                    samples[ch].extend(
+                for (ch, channel_samples) in samples
+                    .iter_mut()
+                    .enumerate()
+                    .take(buf.spec().channels.count().min(channels))
+                {
+                    channel_samples.extend(
                         buf.chan(ch)
                             .iter()
                             .map(|&sample| sample as f32 / i32::MAX as f32),
@@ -130,8 +154,12 @@ pub(crate) fn load_audio_preview(path: &Path) -> Result<AudioPreview> {
                 }
             }
             AudioBufferRef::U8(buf) => {
-                for ch in 0..buf.spec().channels.count().min(channels) {
-                    samples[ch].extend(
+                for (ch, channel_samples) in samples
+                    .iter_mut()
+                    .enumerate()
+                    .take(buf.spec().channels.count().min(channels))
+                {
+                    channel_samples.extend(
                         buf.chan(ch)
                             .iter()
                             .map(|&sample| (sample as f32 / u8::MAX as f32) * 2.0 - 1.0),
@@ -139,8 +167,12 @@ pub(crate) fn load_audio_preview(path: &Path) -> Result<AudioPreview> {
                 }
             }
             AudioBufferRef::U16(buf) => {
-                for ch in 0..buf.spec().channels.count().min(channels) {
-                    samples[ch].extend(
+                for (ch, channel_samples) in samples
+                    .iter_mut()
+                    .enumerate()
+                    .take(buf.spec().channels.count().min(channels))
+                {
+                    channel_samples.extend(
                         buf.chan(ch)
                             .iter()
                             .map(|&sample| (sample as f32 / u16::MAX as f32) * 2.0 - 1.0),
@@ -148,8 +180,12 @@ pub(crate) fn load_audio_preview(path: &Path) -> Result<AudioPreview> {
                 }
             }
             AudioBufferRef::U24(buf) => {
-                for ch in 0..buf.spec().channels.count().min(channels) {
-                    samples[ch].extend(
+                for (ch, channel_samples) in samples
+                    .iter_mut()
+                    .enumerate()
+                    .take(buf.spec().channels.count().min(channels))
+                {
+                    channel_samples.extend(
                         buf.chan(ch)
                             .iter()
                             .map(|sample| (sample.inner() as f32 / 16_777_215.0) * 2.0 - 1.0),
@@ -157,8 +193,12 @@ pub(crate) fn load_audio_preview(path: &Path) -> Result<AudioPreview> {
                 }
             }
             AudioBufferRef::U32(buf) => {
-                for ch in 0..buf.spec().channels.count().min(channels) {
-                    samples[ch].extend(
+                for (ch, channel_samples) in samples
+                    .iter_mut()
+                    .enumerate()
+                    .take(buf.spec().channels.count().min(channels))
+                {
+                    channel_samples.extend(
                         buf.chan(ch)
                             .iter()
                             .map(|&sample| (sample as f32 / u32::MAX as f32) * 2.0 - 1.0),
